@@ -18,6 +18,8 @@ from aiutils.hass_client import HassClient
 from aiutils.tools import Tools
 from aiutils.common import load_config
 
+from wiki_ua_alerts import wiki_to_csv, calculate_next_strike
+
 T = TypeVar('T', bound=BaseAirIntelligence)
 
 
@@ -254,33 +256,42 @@ class MyBot:
 
 
 def run_demo(bot: MyBot) -> None:
-    def_system_prompt = "Ти — корисний помічник. Відповідай чітко, стисло, без зайвих слів."
+    # def_system_prompt = "Ти — корисний помічник. Відповідай чітко, стисло, без зайвих слів."
 
-    bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
-            ai_class=OpenAIAirIntelligence)
+    # bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
+    #         ai_class=OpenAIAirIntelligence)
 
-    bot.ask(def_system_prompt, "яка температура у спальні?",
-            ai_class=OpenAIAirIntelligence)
+    # bot.ask(def_system_prompt, "яка температура у спальні?",
+    #         ai_class=OpenAIAirIntelligence)
 
-    bot.ask(def_system_prompt, "Яка зараз година?",
-            ai_class=OpenAIAirIntelligence)
+    # bot.ask(def_system_prompt, "Яка зараз година?",
+    #         ai_class=OpenAIAirIntelligence)
 
-    bot.ask(def_system_prompt, "Дай приклад інструкції `for` в С#.",
-            ai_class=OpenAIAirIntelligence)
+    # bot.ask(def_system_prompt, "Дай приклад інструкції `for` в С#.",
+    #         ai_class=OpenAIAirIntelligence)
 
-    bot.ask(def_system_prompt, "Який зара курс USD та EUR до гривні?",
-            ai_class=OpenAIAirIntelligence)
+    # bot.ask(def_system_prompt, "Який зара курс USD та EUR до гривні?",
+    #         ai_class=OpenAIAirIntelligence)
 
-    bot.ask(def_system_prompt, "Яка зараз погода у Дніпрі?",
-            ai_class=OpenAIAirIntelligence)
+    # bot.ask(def_system_prompt, "Яка зараз погода у Дніпрі?",
+    #         ai_class=OpenAIAirIntelligence)
 
-    military_prompt = "Ти — військовий аналітик. Твоє завдання: проаналізувати повідомлення."
+    wiki_to_csv("https://uk.wikipedia.org/wiki/%D0%9F%D0%B5%D1%80%D0%B5%D0%BB%D1%96%D0%BA_%D1%80%D0%B0%D0%BA%D0%B5%D1%82%D0%BD%D0%B8%D1%85_%D1%83%D0%B4%D0%B0%D1%80%D1%96%D0%B2_%D0%BF%D1%96%D0%B4_%D1%87%D0%B0%D1%81_%D1%80%D0%BE%D1%81%D1%96%D0%B9%D1%81%D1%8C%D0%BA%D0%BE%D0%B3%D0%BE_%D0%B2%D1%82%D0%BE%D1%80%D0%B3%D0%BD%D0%B5%D0%BD%D0%BD%D1%8F_(%D0%B7%D0%B8%D0%BC%D0%B0_2025/2026)")    
+    math_report = calculate_next_strike()
+    print(math_report)
+
     messages = scrape_messages("https://t.me/s/StrategicaviationT")
+
+    military_prompt = "Ти — військовий аналітик. Твоє завдання: проаналізувати повідомлення."    
     print(f"Scraped {len(messages)} messages.")
     bot.ask(
         military_prompt,
-        "Проаналізуй дай імовірність ударів по Україні найближчим часом, "
-        "базуючись на цих повідомленнях. Відповідай чітко, стисло, без зайвих слів.",
+       f"""
+        Ось математичний розрахунок: {math_report}
+        Ось останні дані з моніторингових каналів - КОНТЕКСТ / messages.
+        Проаналізуй ризики. Чи є ознаки підготовки, які математика не враховує?
+        Надай коротку оцінку загрози (Low/Medium/High/Critical).
+        """,
         user_context={"messages": messages},
         ai_class=OpenAIAirIntelligence,
     )
