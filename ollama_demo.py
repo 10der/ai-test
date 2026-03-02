@@ -14,13 +14,22 @@ from typing import Type, TypeVar
 
 from aiutils.base import BaseAirIntelligence
 from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence
+from aiutils.common import load_config
 from aiutils.hass_client import HassClient
 from aiutils.tools import Tools
-from aiutils.common import load_config
 
-from wiki_ua_alerts import wiki_to_csv, calculate_next_strike
+from wiki_ua_alerts import calculate_next_strike, wiki_to_csv
 
-T = TypeVar('T', bound=BaseAirIntelligence)
+T = TypeVar("T", bound=BaseAirIntelligence)
+
+
+def print_section(title: str) -> None:
+    """
+    Гарне ASCII-оформлення секції для демо в консолі.
+    """
+    bar = "=" * 80
+    centered = f" {title} ".center(80, "=")
+    print(f"\n{bar}\n{centered}\n{bar}\n")
 
 
 def scrape_messages(url: str, delay: float = 1.0) -> list[dict]:
@@ -154,7 +163,7 @@ class MyBot:
 
     def __init__(self):
         self.rag_chunks: list[dict] = []
-        self.model: SentenceTransformer = SentenceTransformer('../MiniLM')
+        self.model: SentenceTransformer = SentenceTransformer("../MiniLM")
 
         config = load_config()
         self.hass_client = HassClient(
@@ -203,7 +212,7 @@ class MyBot:
                     "embedding": json.dumps(embedding),
                 })
 
-        print("Model initialized and RAG chunks created.")
+        print("[MyBot] Модель MiniLM завантажено, побудовано RAG-індекс інтентів.")
 
     def _get_best_tool(self, user_text: str, threshold: float = 0.45) -> dict | None:
         query_vec = self.model.encode(user_text, convert_to_numpy=True)
@@ -256,34 +265,48 @@ class MyBot:
 
 
 def run_demo(bot: MyBot) -> None:
-    # def_system_prompt = "Ти — корисний помічник. Відповідай чітко, стисло, без зайвих слів."
+    """
+    Основний сценарій демо:
+    """
 
-    # bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
-    #         ai_class=OpenAIAirIntelligence)
+    print_section("ДЕМО — Спілкування з ботом)")
+    def_system_prompt = (
+        "Ти — корисний помічник. Відповідай чітко, стисло, без зайвих слів."
+    )
+    
+    bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
+            ai_class=OpenAIAirIntelligence)
+    
+    bot.ask(def_system_prompt, "яка температура у спальні?",
+            ai_class=OpenAIAirIntelligence)
+    
+    bot.ask(def_system_prompt, "Яка зараз година?",
+            ai_class=OpenAIAirIntelligence)
+    
+    bot.ask(def_system_prompt, "Дай приклад інструкції `for` в C#.",
+            ai_class=OpenAIAirIntelligence)
+    
+    bot.ask(def_system_prompt, "Який зараз курс USD та EUR до гривні?",
+            ai_class=OpenAIAirIntelligence)
+    
+    bot.ask(def_system_prompt, "Яка зараз погода у Дніпрі?",
+            ai_class=OpenAIAirIntelligence)
 
-    # bot.ask(def_system_prompt, "яка температура у спальні?",
-    #         ai_class=OpenAIAirIntelligence)
-
-    # bot.ask(def_system_prompt, "Яка зараз година?",
-    #         ai_class=OpenAIAirIntelligence)
-
-    # bot.ask(def_system_prompt, "Дай приклад інструкції `for` в С#.",
-    #         ai_class=OpenAIAirIntelligence)
-
-    # bot.ask(def_system_prompt, "Який зара курс USD та EUR до гривні?",
-    #         ai_class=OpenAIAirIntelligence)
-
-    # bot.ask(def_system_prompt, "Яка зараз погода у Дніпрі?",
-    #         ai_class=OpenAIAirIntelligence)
-
+    print_section("КРОК 1 — Аналіз історичних даних (Wikipedia)")
     wiki_to_csv("https://uk.wikipedia.org/wiki/%D0%9F%D0%B5%D1%80%D0%B5%D0%BB%D1%96%D0%BA_%D1%80%D0%B0%D0%BA%D0%B5%D1%82%D0%BD%D0%B8%D1%85_%D1%83%D0%B4%D0%B0%D1%80%D1%96%D0%B2_%D0%BF%D1%96%D0%B4_%D1%87%D0%B0%D1%81_%D1%80%D0%BE%D1%81%D1%96%D0%B9%D1%81%D1%8C%D0%BA%D0%BE%D0%B3%D0%BE_%D0%B2%D1%82%D0%BE%D1%80%D0%B3%D0%BD%D0%B5%D0%BD%D0%BD%D1%8F_(%D0%B7%D0%B8%D0%BC%D0%B0_2025/2026)")    
     math_report = calculate_next_strike()
+    print("Математична оцінка наступного удару:")
     print(math_report)
 
+    print_section("КРОК 2 — Збір свіжих повідомлень з моніторингових каналів")
     messages = scrape_messages("https://t.me/s/StrategicaviationT")
+    print(f"Отримано {len(messages)} повідомлень з Telegram.")
 
-    military_prompt = "Ти — військовий аналітик. Твоє завдання: проаналізувати повідомлення."    
-    print(f"Scraped {len(messages)} messages.")
+    military_prompt = (
+        "Ти — військовий аналітик. Твоє завдання: проаналізувати повідомлення."
+    )
+
+    print_section("КРОК 3 — Інференс LLM з урахуванням всього контексту")
     bot.ask(
         military_prompt,
        f"""
