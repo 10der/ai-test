@@ -1,9 +1,11 @@
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+from io import StringIO
 from datetime import datetime, timedelta
 import glob
 import re
+import os
 
 def wiki_to_csv(wikiurl):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -18,7 +20,7 @@ def wiki_to_csv(wikiurl):
             continue
 
         print(f"Processing Table {i+1}...")
-        df = pd.read_html(str(table))[0]
+        df = pd.read_html(StringIO(str(table)))[0]
         
         df = df[['дата', 'Удари завдані Росією']]
         filename = f"strikes_{i+1}.csv"
@@ -54,7 +56,7 @@ def calculate_next_strike(target_date=None):
     
     print(f"Розрахунок ведеться відносно дати: {today.strftime('%d.%m.%Y')}")
 
-    all_data['date_dt'] = pd.to_datetime(all_data.iloc[:, 0], dayfirst=True, errors='coerce')
+    all_data['date_dt'] = pd.to_datetime(all_data.iloc[:, 0], format='%d.%m.%Y', errors='coerce')
     all_data = all_data[all_data['date_dt'] < today]
 
     mask = all_data.apply(is_massive, axis=1)
@@ -130,7 +132,18 @@ def create_report():
     combined_df.to_csv("all_strikes_2026_final.csv", index=False, encoding='utf-8-sig')
     print("Final dataset created for RAG!")    
 
+def cleanup_temporary_files():
+    # Шукаємо всі проміжні таблиці
+    temp_files = glob.glob("strikes_*.csv")
+    for f in temp_files:
+        try:
+            os.remove(f)
+            print(f"Removed temporary file: {f}")
+        except OSError as e:
+            print(f"Error deleting {f}: {e}")
+
 if __name__ == "__main__":
     # grab_aviation_messages()
     wiki_to_csv("https://uk.wikipedia.org/wiki/%D0%9F%D0%B5%D1%80%D0%B5%D0%BB%D1%96%D0%BA_%D1%80%D0%B0%D0%BA%D0%B5%D1%82%D0%BD%D0%B8%D1%85_%D1%83%D0%B4%D0%B0%D1%80%D1%96%D0%B2_%D0%BF%D1%96%D0%B4_%D1%87%D0%B0%D1%81_%D1%80%D0%BE%D1%81%D1%96%D0%B9%D1%81%D1%8C%D0%BA%D0%BE%D0%B3%D0%BE_%D0%B2%D1%82%D0%BE%D1%80%D0%B3%D0%BD%D0%B5%D0%BD%D0%BD%D1%8F_(%D0%B7%D0%B8%D0%BC%D0%B0_2025/2026)")    
-    calculate_next_strike()
+    print(calculate_next_strike())
+    cleanup_temporary_files()
