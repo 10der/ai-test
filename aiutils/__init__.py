@@ -1,5 +1,6 @@
 from .base import BaseAirIntelligence
-from .ai_client import AirIntelligence, OpenAIAirIntelligence, Tools
+from .ai_client import AirIntelligence, OpenAIAirIntelligence
+from .tools import Tools
 from .hass_client import HassClient
 from .common import load_config, duckduckgo_search
 

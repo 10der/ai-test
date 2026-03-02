@@ -15,7 +15,7 @@ from typing import Type, TypeVar
 from aiutils.base import BaseAirIntelligence
 from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence
 from aiutils.hass_client import HassClient
-from aiutils.ai_client import Tools
+from aiutils.tools import Tools
 from aiutils.common import load_config
 
 T = TypeVar('T', bound=BaseAirIntelligence)
