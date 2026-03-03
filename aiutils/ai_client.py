@@ -14,7 +14,7 @@ class AirIntelligence(BaseAirIntelligence):
         self.model = config.get("ollama", {}).get("model")
         self.url = config.get("ollama", {}).get("url")
 
-    def ask_ai(self, messages: list, temperature: float = 0.1) -> str:
+    async def ask_ai(self, messages: list, temperature: float = 0.1) -> str:
         """Спілкування з Ollama"""
         payload = {
             "model": self.model,
@@ -38,7 +38,7 @@ class OpenAIAirIntelligence(BaseAirIntelligence):
         self.url = "https://api.openai.com/v1/chat/completions"
         self.api_key = config.get("openai", {}).get("api_key")
 
-    def ask_ai(self, messages: list, temperature: float = 0.1) -> str:
+    async def ask_ai(self, messages: list, temperature: float = 0.1) -> str:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"

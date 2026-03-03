@@ -1,5 +1,5 @@
-import json
 import requests
+import json
 from urllib.parse import parse_qs
 from .hass_client import HassClient
 from .common import duckduckgo_search
@@ -26,12 +26,22 @@ class Tools:
 
     def tool_currency(self, query: str, params=None) -> str:
         """Get currency rate"""
-        currencies = requests.get(
-            "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json",
-            timeout=10,
-        ).json()
-        r = [c for c in currencies if c["cc"] in ['USD', 'EUR']]
-        return json.dumps(r, ensure_ascii=False, indent=2)
+        try:
+            currencies = requests.get(
+                "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json",
+                timeout=10,
+            ).json()
+
+            allowed = ['USD', 'EUR']
+            minimal_data = [
+                {"cc": c["cc"], "rate": c["rate"]} 
+                for c in currencies if c["cc"] in allowed
+            ]
+            
+            return json.dumps(minimal_data, ensure_ascii=False)
+
+        except Exception as e:
+            return f"Помилка отримання курсу: {e}"
 
     def tool_hass(self, query: str, params=None) -> str:
         if query and not params:

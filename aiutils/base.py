@@ -12,11 +12,11 @@ class BaseAirIntelligence(ABC):
         self.tools = tools
 
     @abstractmethod
-    def ask_ai(self, messages: list, temperature: float = 0.1) -> str:
+    async def ask_ai(self, messages: list, temperature: float = 0.1) -> str:
         """Надіслати повідомлення до моделі та отримати відповідь."""
         ...
 
-    def process_request(
+    async def process_request(
         self,
         user_text: str,
         context_data: str | None = None,
@@ -48,7 +48,7 @@ class BaseAirIntelligence(ABC):
             ]
 
         print(f"--- Thinking... (depth={_depth}, context={'Yes' if context_data else 'No'}) ---")
-        ai_response = self.ask_ai(messages)
+        ai_response = await self.ask_ai(messages)
 
         # Перевіряємо, чи модель попросила інструмент (тільки на першому рівні)
         if not context_data:
@@ -60,7 +60,7 @@ class BaseAirIntelligence(ABC):
                 print(f"--- AI requested tool: {ai_response} ---")
                 query = ai_response[len(method_name):].strip()
                 tool_result = getattr(self.tools, method_name)(query, None)
-                return self.process_request(
+                return await self.process_request(
                     user_text,
                     context_data=tool_result,
                     _depth=_depth + 1,
