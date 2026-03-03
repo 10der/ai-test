@@ -1,20 +1,24 @@
 import os
 import yaml
-from ddgs import DDGS  # type: ignore
+from ddgs import DDGS
+import logging
 
 def duckduckgo_search(query, num_results=3):
-    """Безкоштовний пошук через DuckDuckGo"""
-
     results = []
     query = f"{query} site:.ua"
 
-    with DDGS() as ddgs:  # type: ignore
+    logging.disable(logging.INFO)
+
+    with DDGS() as ddgs:
         for r in ddgs.text(
             query,
-            region='ua-uk',
+            safesearch='on', timelimit='y', page=1, backend="auto",
+            region="ua-uk",
             max_results=num_results
         ):
             results.append(f"[{r['title']}]: {r['body']}")
+
+    logging.disable(logging.NOTSET)
 
     return results
 

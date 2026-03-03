@@ -58,8 +58,8 @@ class BaseAirIntelligence(ABC):
             )
             if method_name:
                 print(f"--- AI requested tool: {ai_response} ---")
-                query = ai_response[len(method_name):].strip()
-                tool_result = getattr(self.tools, method_name)(query, None)
+                query = ai_response[len(method_name)+1:].strip()
+                tool_result = await getattr(self.tools, method_name)(query, None)
                 return await self.process_request(
                     user_text,
                     context_data=tool_result,

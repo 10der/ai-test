@@ -11,7 +11,7 @@ class HassClient:
         }
         self.timeout = timeout
 
-    def get(self, path: str):
+    async def get(self, path: str):
         try:
             r = requests.get(
                 f"{self.base_url}{path}",
@@ -28,7 +28,7 @@ class HassClient:
         except requests.RequestException:
             return None
 
-    def post(self, path: str, payload: dict | None = None) -> dict | str | None:
+    async def post(self, path: str, payload: dict | None = None) -> dict | str | None:
         try:
             r = requests.post(
                 f"{self.base_url}{path}",
@@ -65,8 +65,8 @@ class HassClient:
         except requests.RequestException:
             return None
 
-    def get_entity(self, entity_id: str):
-        data = self.get(f"/api/states/{entity_id}")
+    async def get_entity(self, entity_id: str):
+        data = await self.get(f"/api/states/{entity_id}")
 
         if not data:
             return None
@@ -76,8 +76,8 @@ class HassClient:
 
         return data
 
-    def get_entities(self, entity_ids: list[str]):
-        data = self.get("/api/states")
+    async def get_entities(self, entity_ids: list[str]):
+        data = await self.get("/api/states")
         result = {}
 
         if not data:
@@ -97,15 +97,15 @@ class HassClient:
 
         return result
 
-    def get_state(self, entity_id: str):
-        e = self.get_entity(entity_id)
+    async def get_state(self, entity_id: str):
+        e = await self.get_entity(entity_id)
         return e["state"] if e else None
 
-    def get_attr(self, entity_id: str, name: str):
-        e = self.get_entity(entity_id)
+    async def get_attr(self, entity_id: str, name: str):
+        e = await self.get_entity(entity_id)
         return e["attributes"].get(name) if e else None
 
-    def render_template(self, template):
+    async def render_template(self, template):
         """
         Renders a Home Assistant template.
 
@@ -116,13 +116,13 @@ class HassClient:
             str | None: The rendered template string if successful, otherwise None.
         """
 
-        data = self.post("/api/template", {
+        data = await self.post("/api/template", {
             "template": template
         })
 
         return data if data else None
 
-    def get_entity_by_room_and_friendly_name(self, room_name: str, friendly_name) -> str | None:
+    async def get_entity_by_room_and_friendly_name(self, room_name: str, friendly_name) -> str | None:
 
         room_name = room_name.lower()
         friendly_name = friendly_name.lower()
@@ -152,7 +152,7 @@ class HassClient:
 }}}}
 """
 
-        area_device = self.render_template(tpl)
+        area_device = await self.render_template(tpl)
 
         if not area_device:
             return None

@@ -1,4 +1,4 @@
-import requests
+import httpx
 from .common import load_config
 from .tools import Tools
 
@@ -25,9 +25,11 @@ class AirIntelligence(BaseAirIntelligence):
                 "num_thread": 8
             }
         }
-        response = requests.post(self.url, json=payload)
-        response.raise_for_status()
-        return response.json()['message']['content']
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(self.url, json=payload, timeout=60)
+            response.raise_for_status()
+            return response.json()['message']['content']
 
 
 class OpenAIAirIntelligence(BaseAirIntelligence):
@@ -51,15 +53,16 @@ class OpenAIAirIntelligence(BaseAirIntelligence):
         }
 
         try:
-            response = requests.post(
-                self.url, json=payload, headers=headers, timeout=30
-            )
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.url, json=payload, headers=headers, timeout=60
+                )
 
-            if response.status_code != 200:
-                print(f"Debug OpenAI Raw Response: {response.text}")
+                if response.status_code != 200:
+                    print(f"Debug OpenAI Raw Response: {response.text}")
 
-            response.raise_for_status()
-            return response.json()['choices'][0]['message']['content']
+                response.raise_for_status()
+                return response.json()['choices'][0]['message']['content']
 
         except Exception as e:
             return f"OpenAI Error: {str(e)}"

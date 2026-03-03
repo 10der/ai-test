@@ -179,9 +179,8 @@ class MyBot:
             token=config.get("hass", {}).get("token"),
         )
         self.tools = Tools(hass_client=self.hass_client)
-        self._initialize_rag()
 
-    def _initialize_rag(self) -> None:
+    async def init(self) -> None:
         """Наповнює RAG-чанки інтентами та сутностями з Home Assistant."""
         intent_data = [
             ("погода дощ прогноз", "hass", "weather.my_weather_station"),
@@ -199,7 +198,7 @@ class MyBot:
                 "embedding": json.dumps(embedding),
             })
 
-        rooms = self.hass_client.render_template(
+        rooms = await self.hass_client.render_template(
             "{{ areas() | map('area_name') | list | tojson }}"
         )
 
@@ -259,7 +258,7 @@ class MyBot:
                     f"з query='{call_query}' та params='{call_params}'"
                 )
                 method_to_call = getattr(bot.tools, f"tool_{call_tool}")
-                result_data = method_to_call(
+                result_data = await method_to_call(
                     query=call_query, params=call_params)
                 local_kb["search_results"] = result_data
 
@@ -335,8 +334,10 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'          # Формат часу
 )
 
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("ddgs").setLevel(logging.ERROR)
+
+logging.getLogger("httpx").setLevel(logging.CRITICAL)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
@@ -350,6 +351,7 @@ sys.stdout = PrintToLogger()
 
 async def main():
     bot = MyBot()
+    await bot.init()
     await run_demo(bot)
 
 if __name__ == "__main__":
