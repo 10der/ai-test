@@ -180,8 +180,9 @@ class MyBot:
         )
         self.tools = Tools(hass_client=self.hass_client)
 
-    async def init(self) -> None:
-        """Наповнює RAG-чанки інтентами та сутностями з Home Assistant."""
+    async def init_intent_data(self) -> None:
+        # """Наповнює RAG-чанки інтентами та сутностями з Home Assistant."""
+
         intent_data = [
             ("погода дощ прогноз", "hass", "weather.my_weather_station"),
             ("курс валют долар євро гривня", "currency", None),
@@ -222,6 +223,9 @@ class MyBot:
         print("[MyBot] Модель MiniLM завантажено, побудовано RAG-індекс інтентів.")
 
     def _get_best_tool(self, user_text: str, threshold: float = 0.45) -> dict | None:
+        if not self.rag_chunks:
+            return None
+
         query_vec = self.model.encode(user_text, convert_to_numpy=True)
         embeddings = np.array([json.loads(r["embedding"])
                               for r in self.rag_chunks])
@@ -242,6 +246,7 @@ class MyBot:
     ) -> str:
         print(f"Ініціалізую AI клас: {ai_class.__name__}")
         bot = ai_class(tools=self.tools, system_prompt=system_prompt)
+        print(f"User: {query}")
 
         local_kb: dict = {}
 
@@ -266,7 +271,7 @@ class MyBot:
                              indent=2) if local_kb else None
         final_answer = await bot.process_request(query, context_data=context)
 
-        print(f"User: {query}")
+        
         print(f"[{ai_class.__name__}] Bot: {final_answer}")
         return final_answer
 
@@ -282,22 +287,22 @@ async def run_demo(bot: MyBot) -> None:
     )
 
     await bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
-            ai_class=AirIntelligence)
+            ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "яка температура у спальні?",
-            ai_class=AirIntelligence)
+            ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Яка зараз погода у Дніпрі?",
-            ai_class=AirIntelligence)
+            ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Яка зараз година?",
-            ai_class=AirIntelligence)
+            ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Який зараз курс USD та EUR до гривні?",
-            ai_class=AirIntelligence)
+            ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Дай приклад інструкції `for` в C#.",
-            ai_class=AirIntelligence)
+            ai_class=OpenAIAirIntelligence)
 
     print_section("КРОК 1 — Аналіз історичних даних (Wikipedia)")
     wiki_to_csv("https://uk.wikipedia.org/wiki/%D0%9F%D0%B5%D1%80%D0%B5%D0%BB%D1%96%D0%BA_%D1%80%D0%B0%D0%BA%D0%B5%D1%82%D0%BD%D0%B8%D1%85_%D1%83%D0%B4%D0%B0%D1%80%D1%96%D0%B2_%D0%BF%D1%96%D0%B4_%D1%87%D0%B0%D1%81_%D1%80%D0%BE%D1%81%D1%96%D0%B9%D1%81%D1%8C%D0%BA%D0%BE%D0%B3%D0%BE_%D0%B2%D1%82%D0%BE%D1%80%D0%B3%D0%BD%D0%B5%D0%BD%D0%BD%D1%8F_(%D0%B7%D0%B8%D0%BC%D0%B0_2025/2026)")
@@ -351,7 +356,7 @@ sys.stdout = PrintToLogger()
 
 async def main():
     bot = MyBot()
-    await bot.init()
+    await bot.init_intent_data()
     await run_demo(bot)
 
 if __name__ == "__main__":

@@ -5,18 +5,29 @@ import logging
 
 def duckduckgo_search(query, num_results=3):
     results = []
-    query = f"{query} site:.ua"
+    query = (query or "").strip()
+    if not query:
+        return []
 
     logging.disable(logging.INFO)
 
     with DDGS() as ddgs:
         for r in ddgs.text(
             query,
-            safesearch='on', timelimit='y', page=1, backend="auto",
-            region="ua-uk",
+            safesearch="on",
+            timelimit="m",
+            page=1,
+            backend="auto",
+            region="wt-wt",
             max_results=num_results
         ):
-            results.append(f"[{r['title']}]: {r['body']}")
+            title = r.get("title", "").strip()
+            body = r.get("body", "").strip()
+            href = r.get("href", "").strip()
+            if href:
+                results.append(f"[{title}] ({href}): {body}")
+            else:
+                results.append(f"[{title}]: {body}")
 
     logging.disable(logging.NOTSET)
 
