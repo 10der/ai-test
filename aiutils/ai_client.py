@@ -7,6 +7,7 @@ from .base import BaseAirIntelligence
 
 T = TypeVar('T', bound=BaseAirIntelligence)
 
+
 class AirIntelligence(BaseAirIntelligence):
     def __init__(self, tools: Tools, system_prompt: str | None = None):
         super().__init__(tools=tools, system_prompt=system_prompt)
@@ -14,7 +15,7 @@ class AirIntelligence(BaseAirIntelligence):
         self.model = config.get("ollama", {}).get("model")
         self.url = config.get("ollama", {}).get("url")
 
-    async def ask_ai(self, messages: list, temperature: float = 0.1) -> str:
+    async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
         """Спілкування з Ollama"""
         payload = {
             "model": self.model,
@@ -22,14 +23,27 @@ class AirIntelligence(BaseAirIntelligence):
             "stream": False,
             "options": {
                 "temperature": temperature,
-                "num_thread": 8
+                "num_thread": 8,
+                "num_ctx": 2048,
+                "top_k": 20,
             }
         }
 
+        if tools:
+            payload["tools"] = tools
+
+        headers = {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/91.0.4472.124 Safari/537.36',
+            "Content-Type": "application/json"
+        }
+
         async with httpx.AsyncClient() as client:
-            response = await client.post(self.url, json=payload, timeout=60)
+            response = await client.post(self.url, json=payload, timeout=60, headers=headers)
             response.raise_for_status()
-            return response.json()['message']['content']
+            return response.json()['message']
 
 
 class OpenAIAirIntelligence(BaseAirIntelligence):
@@ -40,7 +54,7 @@ class OpenAIAirIntelligence(BaseAirIntelligence):
         self.url = "https://api.openai.com/v1/chat/completions"
         self.api_key = config.get("openai", {}).get("api_key")
 
-    async def ask_ai(self, messages: list, temperature: float = 0.1) -> str:
+    async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -52,17 +66,16 @@ class OpenAIAirIntelligence(BaseAirIntelligence):
             "max_tokens": 1000
         }
 
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.url, json=payload, headers=headers, timeout=60
-                )
+        if tools:
+            payload["tools"] = tools
 
-                if response.status_code != 200:
-                    print(f"Debug OpenAI Raw Response: {response.text}")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self.url, json=payload, headers=headers, timeout=60
+            )
 
-                response.raise_for_status()
-                return response.json()['choices'][0]['message']['content']
+            if response.status_code != 200:
+                print(f"Debug OpenAI Raw Response: {response.text}")
 
-        except Exception as e:
-            return f"OpenAI Error: {str(e)}"
+            response.raise_for_status()
+            return response.json()['choices'][0]['message']

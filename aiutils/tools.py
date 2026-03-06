@@ -1,49 +1,74 @@
 import httpx
 import json
-from urllib.parse import parse_qs
-from dataclasses import dataclass
-from typing import Callable, Any
 from .hass_client import HassClient
 from .common import duckduckgo_search
+import inspect
 
-
-@dataclass(frozen=True)
-class ToolSpec:
-    name: str
-    description: str
-    input_format: str
-    when_to_use: str
-    examples: tuple[str, ...] = ()
-    is_fallback: bool = False
-
-
-def tool_spec(
-    *,
-    description: str,
-    input_format: str,
-    when_to_use: str,
-    examples: list[str] | None = None,
-    is_fallback: bool = False,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """
-    Декоратор для опису інструмента у вигляді структури.
-
-    Це джерело правди для роутер-промпта: опис/формат/коли використовувати/приклади
-    беруться саме звідси, а не з хардкоду в `_get_router_prompt`.
-    """
-    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-        spec = ToolSpec(
-            name=fn.__name__,
-            description=description.strip(),
-            input_format=input_format.strip(),
-            when_to_use=when_to_use.strip(),
-            examples=tuple((examples or ())),
-            is_fallback=is_fallback,
-        )
-        setattr(fn, "_tool_spec", spec)
-        return fn
-
+def tool(name: str, description: str):
+    def decorator(func):
+        func._tool_meta = {
+            "name": name,
+            "description": description,
+        }
+        return func
     return decorator
+
+class ToolRegistry:
+    def __init__(self):
+        self._tools = {}
+
+    def register(self, func):
+        meta = func._tool_meta
+        name = meta["name"]
+
+        signature = inspect.signature(func)
+
+        properties = {}
+        required = []
+
+        for param_name, param in signature.parameters.items():
+            if param_name == "self":
+                continue
+
+            properties[param_name] = {
+                "type": "string",  # можна розширити під int/bool
+                # "description": "Query for search"
+            }
+            required.append(param_name)
+
+        self._tools[name] = {
+            "func": func,
+            "description": meta["description"],
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            }
+        }
+
+    def get_tools_schema(self):
+        result = []
+
+        for name, data in self._tools.items():
+            result.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": data["description"],
+                    "parameters": data["parameters"],
+                }
+            })
+
+        return result
+
+    async def execute(self, name: str, **kwargs) -> str:
+        if name not in self._tools:
+            return f"Error: Unknown tool: {name}"
+
+        func = self._tools[name]["func"]
+
+        # print(f"[TOOL]: {name}")
+        return await func(**kwargs)
 
 
 class Tools:
@@ -53,53 +78,19 @@ class Tools:
                 f"hass_client must be HassClient, got {type(hass_client)}")
         self.hass_client = hass_client
 
-    @property
-    def tool_names(self) -> list[str]:
-        """
-        Повертає список імен *методів* інструментів, що починаються на `tool_`.
+        self.registry = ToolRegistry()
 
-        Важливо: тут НЕ можна робити `getattr(self, ...)` на всьому `dir(self)`,
-        бо це тригерить properties (наприклад `tool_specs`) і може викликати рекурсію.
-        """
-        names: list[str] = []
-        cls = type(self)
-        for name in dir(cls):
-            if not name.startswith("tool_"):
-                continue
-            if name in {"tool_names", "tool_specs"}:
-                continue
-            attr = getattr(cls, name, None)
-            if callable(attr):
-                names.append(name)
-        return sorted(names)
+        # авто-реєстрація всіх методів з декоратором
+        for attr in dir(self):
+            method = getattr(self, attr)
+            if hasattr(method, "_tool_meta"):
+                self.registry.register(method)
 
-    @property
-    def tool_specs(self) -> list[ToolSpec]:
-        """
-        Повертає специфікації інструментів (ToolSpec) для роутера.
-        """
-        specs: list[ToolSpec] = []
-        for name in self.tool_names:
-            fn = getattr(self, name, None)
-            spec = getattr(fn, "_tool_spec", None)
-            if isinstance(spec, ToolSpec):
-                specs.append(spec)
-        return sorted(specs, key=lambda s: s.name)
-
-    @tool_spec(
-        description="Пошук в інтернеті (DuckDuckGo) для актуальних фактів/новин.",
-        input_format="query = довільний текстовий запит (1 рядок).",
-        when_to_use=(
-            "Використовуй, якщо запит стосується фактів/подій/людей після 2023-10 "
-            "або ти не впевнений в актуальності інформації."
-        ),
-        examples=[
-            "tool_general_search: Хто виграв оскара в цьому році?",
-            "tool_general_search: Що цікавого у світі?",
-        ],
-        is_fallback=True,
+    @tool(
+        name="tool_search",
+        description="Web search"
     )
-    async def tool_general_search(self, query: str, params=None) -> str:
+    async def tool_general_search(self, query: str) -> str:
         """
         Пошук в інтернеті (DuckDuckGo) для актуальних фактів/новин.
 
@@ -109,15 +100,11 @@ class Tools:
         results = duckduckgo_search(query, num_results=3)
         return "\n".join(results)
 
-    @tool_spec(
-        description="Отримати курс валют (USD/EUR) від НБУ.",
-        input_format="query = може бути порожній рядок.",
-        when_to_use="Коли користувач просить курс валют до гривні.",
-        examples=[
-            "tool_currency:",
-        ],
+    @tool(
+        name="tool_currency",
+        description="Отримати курси валют НБУ"
     )
-    async def tool_currency(self, query: str, params=None) -> str:
+    async def tool_currency(self) -> str:
         """
         Отримати курс валют (USD/EUR) від НБУ.
 
@@ -152,22 +139,11 @@ class Tools:
         except Exception as e:
             return f"Помилка отримання курсу: {e}"
 
-    @tool_spec(
-        description="Отримати стан/атрибути сутності в Home Assistant.",
-        input_format=(
-            "query = `?room=<кімната>&device=<сутність>`\n"
-            "приклад: `?room=спальня&device=температура`"
-        ),
-        when_to_use=(
-            "Коли користувач питає про погоду/стан/клімат/температу, вологіть або сенсори/пристрої у будинку або кімнаті. "
-            "Ти маєш сам визначити room і device з тексту користувача."
-        ),
-        examples=[
-            "tool_hass: ?room=спальня&device=температура",
-            "tool_hass: ?room=кухня&device=вологість",
-        ],
+    @tool(
+        name="tool_hass",
+        description="Отримати стан/атрибути сутності в Home Assistant за кімнатою та типом пристрою."
     )
-    async def tool_hass(self, query: str, params=None) -> str:
+    async def tool_hass(self, room: str, device: str) -> str:
         """
         Отримати стан/атрибути сутності в Home Assistant за кімнатою та типом пристрою.
 
@@ -178,35 +154,27 @@ class Tools:
 
         Повертає JSON: `entity_id`, `state`, `attributes`.
         """
-        if query and not params:
-            clean_params = query.lstrip('?')
-            parsed = parse_qs(clean_params)
+        if not room:
+            return "Помилка: Не вказано параметр 'room' у запиті."
+        if not device:
+            return "Помилка: Не вказано параметр 'device' у запиті."
 
-            room = parsed.get('room', [None])[0]
-            device = parsed.get('device', [None])[0]
+        if device == "погода":
+            entity_id = "weather.my_weather_station"
+        else:
+            entity_id = await self.hass_client.get_entity_by_room_and_friendly_name(
+                room, device)
 
-            if not room:
-                return "Помилка: Не вказано параметр 'room' у запиті."
-            if not device:
-                return "Помилка: Не вказано параметр 'device' у запиті."
+        if not entity_id:
+            return (
+                f"Помилка: Не знайдено сутність для кімнати '{room}' "
+                f"та пристрою '{device}'. Перевірте назви в Home Assistant."
+            )
 
-            if device == "погода":
-                params = "weather.my_weather_station"
-            else:
-                params = await self.hass_client.get_entity_by_room_and_friendly_name(
-                    room, device)
-                if not params:
-                    return (
-                        f"Помилка: Не знайдено сутність для кімнати '{room}' "
-                        f"та пристрою '{device}'. Перевірте назви в Home Assistant."
-                    )
-        if not params:
-            return "Помилка: Невірний формат запиту для інструменту 'hass'."
-
-        state_data = await self.hass_client.get_entity(params)
+        state_data = await self.hass_client.get_entity(entity_id)
 
         if not state_data:
-            return f"Сутність '{params}' не знайдена або недоступна в Home Assistant."
+            return f"Сутність '{entity_id}' не знайдена або недоступна в Home Assistant."
 
         data = {
             "entity_id": state_data.get("entity_id"),

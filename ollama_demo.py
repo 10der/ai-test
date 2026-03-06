@@ -1,24 +1,20 @@
 import asyncio
-import requests
 import json
-import time
-from datetime import datetime
-from bs4 import BeautifulSoup
-from bs4 import Tag
-
-import numpy as np
-
 import logging
 import sys
+import time
+from datetime import datetime
+from typing import Type, Any
+
+import numpy as np
+import requests
+from bs4 import BeautifulSoup, Tag
 from sentence_transformers import SentenceTransformer
 
-from typing import Type
-
-from aiutils.ai_client import T, AirIntelligence, OpenAIAirIntelligence
+from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence, T
 from aiutils.common import load_config
 from aiutils.hass_client import HassClient
 from aiutils.tools import Tools
-
 from wiki_ua_alerts import calculate_next_strike, wiki_to_csv
 
 
@@ -184,18 +180,16 @@ class MyBot:
         # """Наповнює RAG-чанки інтентами та сутностями з Home Assistant."""
 
         intent_data = [
-            ("погода дощ прогноз", "hass", "weather.my_weather_station"),
-            ("курс валют долар євро гривня", "currency", None),
-            ("новини події що сталось", "general_search", None),
-            ("ціна вартість скільки коштує", "general_search", None),
+            ("погода дощ прогноз", "tool_hass", {"device": "погода", "room": "Дніпро"}),
+            ("курс валют долар євро гривня", "tool_currency", None),
+            ("ціна вартість скільки коштує", "tool_general_search", None),
         ]
 
-        for text, tool_id, entity_id in intent_data:
+        for text, tool_id, params in intent_data:
             embedding = self.model.encode(text).tolist()
             self.rag_chunks.append({
                 "tool": tool_id,
-                "query": None,
-                "params": entity_id,
+                "params": params,
                 "embedding": json.dumps(embedding),
             })
 
@@ -214,9 +208,8 @@ class MyBot:
                 )
                 embedding = self.model.encode(intent_text).tolist()
                 self.rag_chunks.append({
-                    "tool": "hass",
-                    "query": f"?room={room}&device={device}",
-                    "params": None,
+                    "tool": "tool_hass",
+                    "params": {"device": device, "room": room},
                     "embedding": json.dumps(embedding),
                 })
 
@@ -256,22 +249,18 @@ class MyBot:
             tool = self._get_best_tool(query)
             if tool:
                 call_tool = tool.get("tool")
-                call_query = tool.get("query") or query
-                call_params = tool.get("params")
+                call_params: Any = tool.get("params") or {}
                 print(
-                    f"Викликаю інструмент: {call_tool} "
-                    f"з query='{call_query}' та params='{call_params}'"
-                )
-                method_to_call = getattr(bot.tools, f"tool_{call_tool}")
-                result_data = await method_to_call(
-                    query=call_query, params=call_params)
-                local_kb["search_results"] = result_data
+                     f"Викликаю інструмент: {call_tool} {call_params}"
+                 )
+                method_to_call = getattr(bot.tools, f"{call_tool}")
+                tool_result = await method_to_call(**call_params)
+                local_kb["search_results"] = tool_result
 
         context = json.dumps(local_kb, ensure_ascii=False,
                              indent=2) if local_kb else None
         final_answer = await bot.process_request(query, context_data=context)
 
-        
         print(f"[{ai_class.__name__}] Bot: {final_answer}")
         return final_answer
 
@@ -287,22 +276,22 @@ async def run_demo(bot: MyBot) -> None:
     )
 
     await bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
-            ai_class=OpenAIAirIntelligence)
+                  ai_class=AirIntelligence)
 
     await bot.ask(def_system_prompt, "яка температура у спальні?",
-            ai_class=OpenAIAirIntelligence)
+                  ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Яка зараз погода у Дніпрі?",
-            ai_class=OpenAIAirIntelligence)
+                  ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Яка зараз година?",
-            ai_class=OpenAIAirIntelligence)
+                  ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Який зараз курс USD та EUR до гривні?",
-            ai_class=OpenAIAirIntelligence)
+                  ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Дай приклад інструкції `for` в C#.",
-            ai_class=OpenAIAirIntelligence)
+                  ai_class=OpenAIAirIntelligence)
 
     print_section("КРОК 1 — Аналіз історичних даних (Wikipedia)")
     wiki_to_csv("https://uk.wikipedia.org/wiki/%D0%9F%D0%B5%D1%80%D0%B5%D0%BB%D1%96%D0%BA_%D1%80%D0%B0%D0%BA%D0%B5%D1%82%D0%BD%D0%B8%D1%85_%D1%83%D0%B4%D0%B0%D1%80%D1%96%D0%B2_%D0%BF%D1%96%D0%B4_%D1%87%D0%B0%D1%81_%D1%80%D0%BE%D1%81%D1%96%D0%B9%D1%81%D1%8C%D0%BA%D0%BE%D0%B3%D0%BE_%D0%B2%D1%82%D0%BE%D1%80%D0%B3%D0%BD%D0%B5%D0%BD%D0%BD%D1%8F_(%D0%B7%D0%B8%D0%BC%D0%B0_2025/2026)")
@@ -353,6 +342,7 @@ logging.info("Поточний стан: OK")
 
 # Перенаправляємо стандартний вивід
 sys.stdout = PrintToLogger()
+
 
 async def main():
     bot = MyBot()
