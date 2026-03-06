@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from datetime import datetime
 from .tools import Tools
 import json
@@ -13,10 +13,11 @@ class BaseAirIntelligence(ABC):
         )
         self.tools = tools
 
-    @abstractmethod
     async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
         """Надіслати повідомлення до моделі та отримати відповідь."""
-        ...
+
+        logging.debug("Bot: Думаю...")
+        return {"role": "assistant", "content": ""}
 
     async def process_request(
         self,
@@ -48,7 +49,6 @@ class BaseAirIntelligence(ABC):
                 {"role": "user", "content": user_text},
             ]
 
-        logging.info("Bot: Думаю...")
         message = await self.ask_ai(messages=messages, tools=tools)
 
         if "tool_calls" in message:
@@ -56,8 +56,7 @@ class BaseAirIntelligence(ABC):
 
             # Збираємо всі результати тулів за один прохід
             for tool_call in message["tool_calls"]:
-                name = tool_call["function"]["name"]
-                logging.info(f"Bot: [TOOL]: {name}")
+                name = tool_call["function"]["name"]                
                 args = tool_call["function"]["arguments"]
                 if isinstance(args, str):
                     args = json.loads(args)
@@ -74,7 +73,6 @@ class BaseAirIntelligence(ABC):
                 })
 
             # Один фінальний запит після всіх тулів
-            logging.info("Bot: Думаю уважно...")
             final_response = await self.ask_ai(messages)
             return final_response.get("content", "")
         else:

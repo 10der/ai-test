@@ -17,6 +17,9 @@ class AirIntelligence(BaseAirIntelligence):
 
     async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
         """Спілкування з Ollama"""
+
+        await super().ask_ai(messages, tools, temperature)
+
         payload = {
             "model": self.model,
             "messages": messages,
@@ -55,6 +58,9 @@ class OpenAIAirIntelligence(BaseAirIntelligence):
         self.api_key = config.get("openai", {}).get("api_key")
 
     async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
+        """OpenAI call"""
+
+        await super().ask_ai(messages, tools, temperature)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -89,6 +95,9 @@ class GeminiAirIntelligence(BaseAirIntelligence):
         self.url = config.get("gemini", {}).get("url")
 
     async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
+        """Gemini call"""
+
+        await super().ask_ai(messages, tools, temperature)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"

@@ -301,7 +301,7 @@ async def run_demo(bot: MyBot) -> None:
 
 # Налаштування логування
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(message)s',  # Час + повідомлення
     datefmt='%Y-%m-%d %H:%M:%S'          # Формат часу
 )
@@ -314,6 +314,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 logging.getLogger("transformers").setLevel(logging.WARNING)
+logging.getLogger('asyncio').setLevel(logging.WARNING)
 
 logging.info("Система запущена")
 logging.info("Поточний стан: OK")

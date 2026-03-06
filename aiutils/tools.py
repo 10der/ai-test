@@ -3,6 +3,7 @@ import json
 from .hass_client import HassClient
 from .common import duckduckgo_search
 import inspect
+import logging
 
 
 def tool(name: str, description: str):
@@ -66,6 +67,8 @@ class ToolRegistry:
     async def execute(self, name: str, **kwargs) -> str:
         if name not in self._tools:
             return f"Error: Unknown tool: {name}"
+
+        logging.debug(f"Bot: [TOOL]: {name}")
 
         func = self._tools[name]["func"]
         return await func(**kwargs)
