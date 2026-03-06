@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import sys
 import time
 from datetime import datetime
 from typing import Type, Any
@@ -16,24 +15,6 @@ from aiutils.common import load_config
 from aiutils.hass_client import HassClient
 from aiutils.tools import Tools
 from wiki_ua_alerts import calculate_next_strike, wiki_to_csv
-
-
-class PrintToLogger:
-    def write(self, buf):
-        for line in buf.rstrip().splitlines():
-            logging.info(line.strip())
-
-    def flush(self):
-        pass
-
-
-def print_section(title: str) -> None:
-    """
-    Гарне ASCII-оформлення секції для демо в консолі.
-    """
-    bar = "=" * 80
-    centered = f" {title} ".center(80, "=")
-    print(f"\n{bar}\n{centered}\n{bar}\n")
 
 
 def scrape_messages(url: str, delay: float = 1.0) -> list[dict]:
@@ -56,7 +37,7 @@ def scrape_messages(url: str, delay: float = 1.0) -> list[dict]:
             response = requests.get(url, headers=headers, timeout=60)
 
             if response.status_code != 200:
-                print(
+                logging.info(
                     f"[scrape] HTTP {response.status_code} on attempt {attempt}")
                 if attempt < max_retries:
                     time.sleep(delay * attempt)
@@ -65,7 +46,7 @@ def scrape_messages(url: str, delay: float = 1.0) -> list[dict]:
 
             break  # успішно отримали відповідь
         except requests.RequestException as e:
-            print(f"[scrape] Request error on attempt {attempt}: {e}")
+            logging.info(f"[scrape] Request error on attempt {attempt}: {e}")
             if attempt < max_retries:
                 time.sleep(delay * attempt)
             else:
@@ -213,7 +194,7 @@ class MyBot:
                     "embedding": json.dumps(embedding),
                 })
 
-        print("[MyBot] Модель MiniLM завантажено, побудовано RAG-індекс інтентів.")
+        logging.info("[MyBot] Модель MiniLM завантажено, побудовано RAG-індекс інтентів.")
 
     def _get_best_tool(self, user_text: str, threshold: float = 0.45) -> dict | None:
         if not self.rag_chunks:
@@ -237,9 +218,9 @@ class MyBot:
         user_context: dict | None = None,
         ai_class: Type[T] = AirIntelligence,
     ) -> str:
-        print(f"Ініціалізую AI клас: {ai_class.__name__}")
+        logging.info(f"Ініціалізую AI клас: {ai_class.__name__}")
         bot = ai_class(tools=self.tools, system_prompt=system_prompt)
-        print(f"User: {query}")
+        logging.info(f"User: {query}")
 
         local_kb: dict = {}
 
@@ -250,7 +231,7 @@ class MyBot:
             if tool:
                 call_tool = tool.get("tool")
                 call_params: Any = tool.get("params") or {}
-                print(
+                logging.info(
                      f"Викликаю інструмент: {call_tool} {call_params}"
                  )
                 method_to_call = getattr(bot.tools, f"{call_tool}")
@@ -261,7 +242,7 @@ class MyBot:
                              indent=2) if local_kb else None
         final_answer = await bot.process_request(query, context_data=context)
 
-        print(f"[{ai_class.__name__}] Bot: {final_answer}")
+        logging.info(f"[{ai_class.__name__}] Bot: {final_answer}")
         return final_answer
 
 
@@ -270,7 +251,6 @@ async def run_demo(bot: MyBot) -> None:
     Основний сценарій демо:
     """
 
-    print_section("ДЕМО — Спілкування з ботом)")
     def_system_prompt = (
         "Ти — корисний помічник. Відповідай чітко, стисло, без зайвих слів."
     )
@@ -293,21 +273,19 @@ async def run_demo(bot: MyBot) -> None:
     await bot.ask(def_system_prompt, "Дай приклад інструкції `for` в C#.",
                   ai_class=OpenAIAirIntelligence)
 
-    print_section("КРОК 1 — Аналіз історичних даних (Wikipedia)")
+    # Приклад матиматичного аналізу
     wiki_to_csv("https://uk.wikipedia.org/wiki/%D0%9F%D0%B5%D1%80%D0%B5%D0%BB%D1%96%D0%BA_%D1%80%D0%B0%D0%BA%D0%B5%D1%82%D0%BD%D0%B8%D1%85_%D1%83%D0%B4%D0%B0%D1%80%D1%96%D0%B2_%D0%BF%D1%96%D0%B4_%D1%87%D0%B0%D1%81_%D1%80%D0%BE%D1%81%D1%96%D0%B9%D1%81%D1%8C%D0%BA%D0%BE%D0%B3%D0%BE_%D0%B2%D1%82%D0%BE%D1%80%D0%B3%D0%BD%D0%B5%D0%BD%D0%BD%D1%8F_(%D0%B7%D0%B8%D0%BC%D0%B0_2025/2026)")
     math_report = calculate_next_strike()
-    print("Математична оцінка наступного удару:")
-    print(math_report)
+    logging.info("Математична оцінка наступного удару:")
+    logging.info(math_report)
 
-    print_section("КРОК 2 — Збір свіжих повідомлень з моніторингових каналів")
     messages = scrape_messages("https://t.me/s/StrategicaviationT")
-    print(f"Отримано {len(messages)} повідомлень з Telegram.")
+    logging.info(f"Отримано {len(messages)} повідомлень з Telegram.")
 
     military_prompt = (
         "Ти — військовий аналітик. Твоє завдання: проаналізувати повідомлення."
     )
 
-    print_section("КРОК 3 — Інференс LLM з урахуванням всього контексту")
     await bot.ask(
         military_prompt,
         f"""
@@ -339,10 +317,6 @@ logging.getLogger("transformers").setLevel(logging.WARNING)
 
 logging.info("Система запущена")
 logging.info("Поточний стан: OK")
-
-# Перенаправляємо стандартний вивід
-sys.stdout = PrintToLogger()
-
 
 async def main():
     bot = MyBot()

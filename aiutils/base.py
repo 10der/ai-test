@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from .tools import Tools
 import json
-
+import logging
 
 class BaseAirIntelligence(ABC):
     def __init__(self, tools: Tools, system_prompt: str | None = None):
@@ -48,7 +48,7 @@ class BaseAirIntelligence(ABC):
                 {"role": "user", "content": user_text},
             ]
 
-        print("Bot: Думаю...")
+        logging.info("Bot: Думаю...")
         message = await self.ask_ai(messages=messages, tools=tools)
 
         if "tool_calls" in message:
@@ -57,7 +57,7 @@ class BaseAirIntelligence(ABC):
             # Збираємо всі результати тулів за один прохід
             for tool_call in message["tool_calls"]:
                 name = tool_call["function"]["name"]
-                print(f"Bot: [TOOL]: {name}")
+                logging.info(f"Bot: [TOOL]: {name}")
                 args = tool_call["function"]["arguments"]
                 if isinstance(args, str):
                     args = json.loads(args)
@@ -74,7 +74,7 @@ class BaseAirIntelligence(ABC):
                 })
 
             # Один фінальний запит після всіх тулів
-            print("Bot: Думаю уважно...")
+            logging.info("Bot: Думаю уважно...")
             final_response = await self.ask_ai(messages)
             return final_response.get("content", "")
         else:
