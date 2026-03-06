@@ -1,4 +1,4 @@
-import requests
+import httpx
 import json
 
 
@@ -13,11 +13,12 @@ class HassClient:
 
     async def get(self, path: str):
         try:
-            r = requests.get(
-                f"{self.base_url}{path}",
-                headers=self.headers,
-                timeout=self.timeout,
-            )
+            async with httpx.AsyncClient() as client:
+                r = await client.get(
+                    f"{self.base_url}{path}",
+                    headers=self.headers,
+                    timeout=self.timeout,
+                )
 
             if r.status_code == 404:
                 return None
@@ -25,17 +26,18 @@ class HassClient:
             r.raise_for_status()
             return r.json()
 
-        except requests.RequestException:
+        except httpx.HTTPError:
             return None
 
     async def post(self, path: str, payload: dict | None = None) -> dict | str | None:
         try:
-            r = requests.post(
-                f"{self.base_url}{path}",
-                json=payload,
-                headers=self.headers,
-                timeout=self.timeout,
-            )
+            async with httpx.AsyncClient() as client:
+                r = await client.post(
+                    f"{self.base_url}{path}",
+                    json=payload,
+                    headers=self.headers,
+                    timeout=self.timeout,
+                )
 
             if r.status_code == 404:
                 return None
@@ -47,22 +49,19 @@ class HassClient:
             if not text:
                 return None
 
-            # пробуємо нормальний JSON
             try:
                 return r.json()
             except ValueError:
                 pass
 
-            # пробуємо руками
             try:
                 return json.loads(text)
             except ValueError:
                 pass
 
-            # fallback
             return text
 
-        except requests.RequestException:
+        except httpx.HTTPError:
             return None
 
     async def get_entity(self, entity_id: str):
@@ -106,16 +105,6 @@ class HassClient:
         return e["attributes"].get(name) if e else None
 
     async def render_template(self, template):
-        """
-        Renders a Home Assistant template.
-
-        Args:
-            template (str): The Jinja2 template string to render.
-
-        Returns:
-            str | None: The rendered template string if successful, otherwise None.
-        """
-
         data = await self.post("/api/template", {
             "template": template
         })

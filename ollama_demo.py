@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup, Tag
 from sentence_transformers import SentenceTransformer
 
-from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence, GeminiAirIntelligence, T
+from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence, T
 from aiutils.common import load_config
 from aiutils.hass_client import HassClient
 from aiutils.tools import Tools

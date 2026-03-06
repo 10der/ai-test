@@ -14,7 +14,7 @@ class BaseAirIntelligence(ABC):
         self.tools = tools
 
     @abstractmethod
-    async def ask_ai(self, messages: list, tools = None, temperature: float = 0.1) -> dict:
+    async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
         """Надіслати повідомлення до моделі та отримати відповідь."""
         ...
 
@@ -24,10 +24,9 @@ class BaseAirIntelligence(ABC):
         context_data: str | None = None,
         system_prompt_override: str | None = None,
     ) -> str:
-    
+
         if context_data:
             tools = None
-            # Аналітик — дані вже є, формуємо лаконічний системний промпт
             current_date = datetime.now().strftime("%d.%m.%Y")
             current_time = datetime.now().strftime("%H:%M")
             sys_message = (
@@ -43,21 +42,19 @@ class BaseAirIntelligence(ABC):
             ]
         else:
             tools = self.tools.registry.get_tools_schema()
-            # Роутер — визначаємо, чи треба інструмент
             sys_message = self._get_router_prompt(system_prompt_override)
             messages = [
                 {"role": "system", "content": sys_message},
                 {"role": "user", "content": user_text},
             ]
-        
+
         print("Bot: Думаю...")
         message = await self.ask_ai(messages=messages, tools=tools)
 
-        # якщо tool викликається
         if "tool_calls" in message:
             messages.append(message)
 
-            final_text = ""
+            # Збираємо всі результати тулів за один прохід
             for tool_call in message["tool_calls"]:
                 name = tool_call["function"]["name"]
                 print(f"Bot: [TOOL]: {name}")
@@ -76,16 +73,12 @@ class BaseAirIntelligence(ABC):
                     "content": json.dumps(tool_result, ensure_ascii=False)
                 })
 
-                # ---- другий запит ----
-                print("Bot: Думаю уважно...")
-                final_response = await self.ask_ai(messages)
-                final_text = final_text + final_response["content"]
-
-            return final_text
+            # Один фінальний запит після всіх тулів
+            print("Bot: Думаю уважно...")
+            final_response = await self.ask_ai(messages)
+            return final_response.get("content", "")
         else:
-            # без tool
             return message.get("content", "")
-        
 
     def _get_router_prompt(self, system_prompt_override: str | None = None) -> str:
         current_date = datetime.now().strftime("%d.%m.%Y")

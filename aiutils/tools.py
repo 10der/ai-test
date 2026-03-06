@@ -4,6 +4,7 @@ from .hass_client import HassClient
 from .common import duckduckgo_search
 import inspect
 
+
 def tool(name: str, description: str):
     def decorator(func):
         func._tool_meta = {
@@ -12,6 +13,7 @@ def tool(name: str, description: str):
         }
         return func
     return decorator
+
 
 class ToolRegistry:
     def __init__(self):
@@ -31,8 +33,8 @@ class ToolRegistry:
                 continue
 
             properties[param_name] = {
-                "type": "string",  # можна розширити під int/bool
-                # "description": "Query for search"
+                "type": "string",
+                # "description": "",
             }
             required.append(param_name)
 
@@ -66,8 +68,6 @@ class ToolRegistry:
             return f"Error: Unknown tool: {name}"
 
         func = self._tools[name]["func"]
-
-        # print(f"[TOOL]: {name}")
         return await func(**kwargs)
 
 
@@ -80,7 +80,6 @@ class Tools:
 
         self.registry = ToolRegistry()
 
-        # авто-реєстрація всіх методів з декоратором
         for attr in dir(self):
             method = getattr(self, attr)
             if hasattr(method, "_tool_meta"):
@@ -91,12 +90,6 @@ class Tools:
         description="Web search"
     )
     async def tool_general_search(self, query: str) -> str:
-        """
-        Пошук в інтернеті (DuckDuckGo) для актуальних фактів/новин.
-
-        Формат:
-        - **query**: довільний текстовий запит, наприклад: "Хто президент США 2025".
-        """
         results = duckduckgo_search(query, num_results=3)
         return "\n".join(results)
 
@@ -105,13 +98,6 @@ class Tools:
         description="Отримати курси валют НБУ"
     )
     async def tool_currency(self) -> str:
-        """
-        Отримати курс валют (USD/EUR) від НБУ.
-
-        Формат:
-        - **query**: ігнорується (можна передати пустий рядок).
-        - Повертає ГОТОВИЙ ТЕКСТ (щоб модель не "перемножувала" і не перекручувала числа).
-        """
         try:
             async with httpx.AsyncClient() as client:
                 currencies = await client.get(
@@ -144,16 +130,6 @@ class Tools:
         description="Отримати стан/атрибути сутності в Home Assistant за кімнатою та типом пристрою."
     )
     async def tool_hass(self, room: str, device: str) -> str:
-        """
-        Отримати стан/атрибути сутності в Home Assistant за кімнатою та типом пристрою.
-
-        Формат:
-        - **query**: рядок параметрів виду `?room=<кімната>&device=<сутність>`
-          Приклад: `?room=спальня&device=температура`
-        - **params**: можна передати напряму `entity_id` (тоді query можна не використовувати).
-
-        Повертає JSON: `entity_id`, `state`, `attributes`.
-        """
         if not room:
             return "Помилка: Не вказано параметр 'room' у запиті."
         if not device:
