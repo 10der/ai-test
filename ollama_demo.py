@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup, Tag
 from sentence_transformers import SentenceTransformer
 
-from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence, T
+from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence, GeminiAirIntelligence, T
 from aiutils.common import load_config
 from aiutils.hass_client import HassClient
 from aiutils.tools import Tools
@@ -276,7 +276,7 @@ async def run_demo(bot: MyBot) -> None:
     )
 
     await bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
-                  ai_class=AirIntelligence)
+                  ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "яка температура у спальні?",
                   ai_class=OpenAIAirIntelligence)

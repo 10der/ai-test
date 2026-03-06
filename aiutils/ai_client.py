@@ -79,3 +79,39 @@ class OpenAIAirIntelligence(BaseAirIntelligence):
 
             response.raise_for_status()
             return response.json()['choices'][0]['message']
+
+class GeminiAirIntelligence(BaseAirIntelligence):
+    def __init__(self, tools: Tools, system_prompt: str | None = None):
+        super().__init__(tools=tools, system_prompt=system_prompt)
+        config = load_config()
+        self.model = config.get("gemini", {}).get("model", "gemini-1.5-flash")
+        self.api_key = config.get("gemini", {}).get("api_key")
+        self.url = config.get("gemini", {}).get("url")
+
+    async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": 2048
+        }
+
+        if tools:
+            # Gemini підтримує формат інструментів OpenAI через цей endpoint
+            payload["tools"] = tools
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self.url, json=payload, headers=headers, timeout=60
+            )
+
+            if response.status_code != 200:
+                print(f"Debug Gemini Raw Response: {response.text}")
+
+            response.raise_for_status()
+            return response.json()['choices'][0]['message']
