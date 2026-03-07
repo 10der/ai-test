@@ -153,10 +153,8 @@ class Tools:
             )
 
         if isinstance(entity_id, list):
-            # Отримуємо стани для всіх entity_id з твого списку
             states = [await self.hass_client.get_entity(eid) for eid in entity_id]
             
-            # Фільтруємо цифри та рахуємо середнє
             values = [to_float(s['state'] if s else 0) for s in states]
             values = [v for v in values if v is not None]
             
