@@ -5,6 +5,11 @@ from .common import duckduckgo_search
 import inspect
 import logging
 
+def to_float(value, default=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 def tool(name: str, description: str):
     def decorator(func):
@@ -132,15 +137,12 @@ class Tools:
         name="tool_hass",
         description="Отримати стан/атрибути сутності в Home Assistant за кімнатою та типом пристрою."
     )
-    async def tool_hass(self, room: str, device: str) -> str:
-        if not room:
-            return "Помилка: Не вказано параметр 'room' у запиті."
+    async def tool_hass(self, room: str, device: str, **kwargs) -> str:
         if not device:
             return "Помилка: Не вказано параметр 'device' у запиті."
 
-        if device == "погода":
-            entity_id = "weather.my_weather_station"
-        else:
+        entity_id = kwargs.get("entity_id")
+        if not entity_id:
             entity_id = await self.get_entity_by_room_and_friendly_name(
                 room, device)
 
@@ -150,7 +152,21 @@ class Tools:
                 f"та пристрою '{device}'. Перевірте назви в Home Assistant."
             )
 
-        state_data = await self.hass_client.get_entity(entity_id)
+        if isinstance(entity_id, list):
+            # Отримуємо стани для всіх entity_id з твого списку
+            states = [await self.hass_client.get_entity(eid) for eid in entity_id]
+            
+            # Фільтруємо цифри та рахуємо середнє
+            values = [to_float(s['state'] if s else 0) for s in states]
+            values = [v for v in values if v is not None]
+            
+            state_data = {
+                "entity_id": "entity_id",
+                "state": sum(values) / len(values) if values else 0,
+                "attributes": {}
+            }
+        else:
+            state_data = await self.hass_client.get_entity(entity_id)
 
         if not state_data:
             return f"Сутність '{entity_id}' не знайдена або недоступна в Home Assistant."
@@ -169,27 +185,28 @@ class Tools:
         friendly_name = friendly_name.lower()
 
         tpl = f"""
-{{% set ns = namespace(area_id=none) %}}
-{{% for a in areas() %}}
-{{% if area_name(a) | lower == '{room_name}' %}}
-    {{% set ns.area_id = a %}}
-{{% endif %}}
+{{% set sensors = namespace(items=[]) %}}
+{{% for s in states
+      | expand
+      | selectattr('attributes.friendly_name', 'defined')
+      | selectattr(
+          'name',
+          'search',
+          '{friendly_name}',
+          ignorecase=True
+      )
+%}}
+  {{% set sensors.items = sensors.items + [{{'name': s.name, 'id': s.entity_id, 'area': area_name(s.entity_id)}}] %}}
 {{% endfor %}}
 
 {{{{
-    area_entities(ns.area_id)
-        | expand
-        | selectattr('attributes.friendly_name', 'defined')
-        | selectattr(
-            'attributes.friendly_name',
-            'search',
-            '{friendly_name}',
-            ignorecase=True
-        )
-        | map(attribute='entity_id')
-        | first
-        | tojson
-
+sensors.items 
+       | selectattr(
+          'area',
+          'search',
+          '{room_name}',
+          ignorecase=True
+      ) | first | tojson 
 }}}}
 """
 
@@ -197,8 +214,11 @@ class Tools:
 
         if not area_device:
             return None
+        
+        if not isinstance(area_device, dict):
+            return None
 
-        return str(area_device)
+        return str(area_device.get('id'))
     
     async def get_area_aliases(self) -> dict:
         """Повертає мапу {'Назва кімнати': ['аліас1', 'аліас2']}"""

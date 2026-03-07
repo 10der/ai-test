@@ -162,23 +162,33 @@ class MyBot:
 
         areas = await self.hass_client.call_ws_command("config/area_registry/list")
         if not areas:
-            areas = {}
+            areas = []
+
+        floors = await self.hass_client.call_ws_command("config/floor_registry/list")
+        if not floors:
+            floors = []
 
         # Створюємо мапу: Name -> List of Aliases
-        rooms = {a["name"]: a.get("aliases", []) for a in areas}
-        rooms['Будинок'] = ['хата', 'дім', 'все', 'всюди']
+        rooms = {a["name"]: {"aliases":  a.get(
+            "aliases", []), "data": a} for a in areas}
+        
+        main_floor_aliases = next((a for a in floors if a["floor_id"] == "main"), None)
+        main_floor_data = [a for a in areas if a["floor_id"] == "main"]
+        temperature_entity_ids = [s["temperature_entity_id"] for s in main_floor_data ]
+        humidity_entity_ids = [s["humidity_entity_id"] for s in main_floor_data ]
+        rooms['Будинок'] = {"aliases": main_floor_aliases["aliases"] if main_floor_aliases else [], "data": {"temperature_entity_id": temperature_entity_ids, "humidity_entity_id": humidity_entity_ids}}
 
         for room in rooms:
-            names = [room] + rooms[room]
+            names = [room] + rooms[room]["aliases"]
             for name in names:
                 # Генеруємо СЕМАНТИЧНІ ПРИКЛАДИ
                 self.classifier.add_intent(f"яка температура скільки градусів {name}", "tool_hass", {
-                                           "room": room, "device": "температура"})
+                                           "room": room, "device": "температура", "entity_id": rooms[room]["data"].get('temperature_entity_id')})
                 self.classifier.add_intent(f"яка вологість {name}", "tool_hass", {
-                                           "room": room, "device": "вологість"})
+                                           "room": room, "device": "вологість","entity_id": rooms[room]["data"].get('humidity_entity_id')})
 
         self.classifier.add_intent("прогноз погоди", "tool_hass", {
-                                   "room": "Дніпро", "device": "погода"})
+                                   "room": "", "device": "погода"})
         self.classifier.add_intent(
             "курс валют долар євро гривня", "tool_currency", {})
 
@@ -234,6 +244,9 @@ async def run_demo(bot: MyBot) -> None:
     )
 
     await bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
+                  ai_class=OpenAIAirIntelligence)
+
+    await bot.ask(def_system_prompt, "яка температура у будинку?",
                   ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "яка температура у спальні?",
