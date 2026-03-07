@@ -1,20 +1,21 @@
 import asyncio
-import json
 import logging
 import time
 from datetime import datetime
 from typing import Type, Any
 
+import json
 import numpy as np
 import requests
 from bs4 import BeautifulSoup, Tag
-from sentence_transformers import SentenceTransformer
 
 from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence, T
 from aiutils.common import load_config
 from aiutils.hass_client import HassClient
 from aiutils.tools import Tools
 from wiki_ua_alerts import calculate_next_strike, wiki_to_csv
+
+from aiutils.intent_classifier import IntentClassifier
 
 
 def scrape_messages(url: str, delay: float = 1.0) -> list[dict]:
@@ -148,7 +149,7 @@ class MyBot:
 
     def __init__(self):
         self.rag_chunks: list[dict] = []
-        self.model: SentenceTransformer = SentenceTransformer("../MiniLM")
+        self.classifier = IntentClassifier(threshold=0.7)
 
         config = load_config()
         self.hass_client = HassClient(
@@ -157,59 +158,31 @@ class MyBot:
         )
         self.tools = Tools(hass_client=self.hass_client)
 
-    async def init_intent_data(self) -> None:
-        # """Наповнює RAG-чанки інтентами та сутностями з Home Assistant."""
+    async def init_intent_data(self):
 
-        intent_data = [
-            ("погода дощ прогноз", "tool_hass", {"device": "погода", "room": "Дніпро"}),
-            ("курс валют долар євро гривня", "tool_currency", None),
-            ("ціна вартість скільки коштує", "tool_general_search", None),
-        ]
+        areas = await self.hass_client.call_ws_command("config/area_registry/list")
+        if not areas:
+            areas = {}
 
-        for text, tool_id, params in intent_data:
-            embedding = self.model.encode(text).tolist()
-            self.rag_chunks.append({
-                "tool": tool_id,
-                "params": params,
-                "embedding": json.dumps(embedding),
-            })
-
-        rooms = await self.hass_client.render_template(
-            "{{ areas() | map('area_name') | list | tojson }}"
-        )
-
-        if not rooms:
-            rooms = []
+        # Створюємо мапу: Name -> List of Aliases
+        rooms = {a["name"]: a.get("aliases", []) for a in areas}
+        rooms['Будинок'] = ['хата', 'дім', 'все', 'всюди']
 
         for room in rooms:
-            for device in ['температура', 'вологість', 'освітлення', 'стан']:
-                intent_text = (
-                    f"Я хочу дізнатися показник {device} "
-                    f"(датчик {device}) у приміщенні {room}"
-                )
-                embedding = self.model.encode(intent_text).tolist()
-                self.rag_chunks.append({
-                    "tool": "tool_hass",
-                    "params": {"device": device, "room": room},
-                    "embedding": json.dumps(embedding),
-                })
+            names = [room] + rooms[room]
+            for name in names:
+                # Генеруємо СЕМАНТИЧНІ ПРИКЛАДИ
+                self.classifier.add_intent(f"яка температура скільки градусів {name}", "tool_hass", {
+                                           "room": room, "device": "температура"})
+                self.classifier.add_intent(f"яка вологість {name}", "tool_hass", {
+                                           "room": room, "device": "вологість"})
 
-        logging.info("[MyBot] Модель MiniLM завантажено, побудовано RAG-індекс інтентів.")
+        self.classifier.add_intent("прогноз погоди", "tool_hass", {
+                                   "room": "Дніпро", "device": "погода"})
+        self.classifier.add_intent(
+            "курс валют долар євро гривня", "tool_currency", {})
 
-    def _get_best_tool(self, user_text: str, threshold: float = 0.45) -> dict | None:
-        if not self.rag_chunks:
-            return None
-
-        query_vec = self.model.encode(user_text, convert_to_numpy=True)
-        embeddings = np.array([json.loads(r["embedding"])
-                              for r in self.rag_chunks])
-        similarities = cosine_similarity(query_vec, embeddings)
-
-        best_idx = int(np.argmax(similarities))
-        if similarities[best_idx] >= threshold:
-            return self.rag_chunks[best_idx]
-
-        return None
+        self.classifier.build_index()
 
     async def ask(
         self,
@@ -227,22 +200,27 @@ class MyBot:
         if user_context:
             local_kb.update(user_context)
         else:
-            tool = self._get_best_tool(query)
-            if tool:
-                call_tool = tool.get("tool")
-                call_params: Any = tool.get("params") or {}
+            intent = self.classifier.predict(query)
+            if intent:
+                call_tool = intent.get("tool")
+                call_params: Any = intent.get("params") or {}
                 logging.info(
-                     f"Викликаю інструмент: {call_tool} {call_params}"
-                 )
+                    f"Викликаю інструмент: {call_tool} {call_params}"
+                )
                 method_to_call = getattr(bot.tools, f"{call_tool}")
                 tool_result = await method_to_call(**call_params)
                 local_kb["search_results"] = tool_result
+
+                if intent:
+                    print(
+                        f"Знайдено: {intent['tool']} | Params: {intent['params']}")
 
         context = json.dumps(local_kb, ensure_ascii=False,
                              indent=2) if local_kb else None
         final_answer = await bot.process_request(query, context_data=context)
 
         logging.info(f"[{ai_class.__name__}] Bot: {final_answer}")
+        logging.info("")
         return final_answer
 
 
@@ -310,6 +288,7 @@ logging.getLogger("ddgs").setLevel(logging.ERROR)
 
 logging.getLogger("httpx").setLevel(logging.CRITICAL)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger('websockets').setLevel(logging.ERROR)
 
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
@@ -318,6 +297,7 @@ logging.getLogger('asyncio').setLevel(logging.WARNING)
 
 logging.info("Система запущена")
 logging.info("Поточний стан: OK")
+
 
 async def main():
     bot = MyBot()

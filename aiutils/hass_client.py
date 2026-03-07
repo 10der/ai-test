@@ -1,12 +1,14 @@
 import httpx
 import json
-
+import websockets
 
 class HassClient:
     def __init__(self, base_url: str, token: str, timeout: int = 5):
         self.base_url = base_url.rstrip("/")
+        self.ws_url = self.base_url.replace("http", "ws") + "/api/websocket"
+        self.token = token
         self.headers = {
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
         self.timeout = timeout
@@ -111,39 +113,36 @@ class HassClient:
 
         return data if data else None
 
-    async def get_entity_by_room_and_friendly_name(self, room_name: str, friendly_name) -> str | None:
+    async def call_ws_command(self, msg_type: str, **kwargs):
+            """Викликає разову команду через WebSocket і повертає результат"""
+            try:
+                async with websockets.connect(self.ws_url) as ws:
+                    # 1. Авторизація
+                    auth_msg = json.loads(await ws.recv())
+                    if auth_msg.get("type") != "auth_required":
+                        return None
 
-        room_name = room_name.lower()
-        friendly_name = friendly_name.lower()
+                    await ws.send(json.dumps({
+                        "type": "auth",
+                        "access_token": self.token
+                    }))
 
-        tpl = f"""
-{{% set ns = namespace(area_id=none) %}}
-{{% for a in areas() %}}
-{{% if area_name(a) | lower == '{room_name}' %}}
-    {{% set ns.area_id = a %}}
-{{% endif %}}
-{{% endfor %}}
+                    auth_result = json.loads(await ws.recv())
+                    if auth_result.get("type") != "auth_ok":
+                        return None
 
-{{{{
-    area_entities(ns.area_id)
-        | expand
-        | selectattr('attributes.friendly_name', 'defined')
-        | selectattr(
-            'attributes.friendly_name',
-            'search',
-            '{friendly_name}',
-            ignorecase=True
-        )
-        | map(attribute='entity_id')
-        | first
-        | tojson
+                    # 2. Відправка команди
+                    msg_id = 1 # Для разового запиту вистачить
+                    payload = {"id": msg_id, "type": msg_type, **kwargs}
+                    await ws.send(json.dumps(payload))
 
-}}}}
-"""
-
-        area_device = await self.render_template(tpl)
-
-        if not area_device:
-            return None
-
-        return str(area_device)
+                    # 3. Отримання результату
+                    while True:
+                        response = json.loads(await ws.recv())
+                        if response.get("id") == msg_id:
+                            if response.get("success"):
+                                return response.get("result")
+                            return None
+            except Exception as e:
+                print(f"WS Error: {e}")
+                return None

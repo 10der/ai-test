@@ -141,7 +141,7 @@ class Tools:
         if device == "погода":
             entity_id = "weather.my_weather_station"
         else:
-            entity_id = await self.hass_client.get_entity_by_room_and_friendly_name(
+            entity_id = await self.get_entity_by_room_and_friendly_name(
                 room, device)
 
         if not entity_id:
@@ -162,3 +162,49 @@ class Tools:
         }
 
         return json.dumps(data, ensure_ascii=False, indent=2)
+
+    async def get_entity_by_room_and_friendly_name(self, room_name: str, friendly_name) -> str | None:
+
+        room_name = room_name.lower()
+        friendly_name = friendly_name.lower()
+
+        tpl = f"""
+{{% set ns = namespace(area_id=none) %}}
+{{% for a in areas() %}}
+{{% if area_name(a) | lower == '{room_name}' %}}
+    {{% set ns.area_id = a %}}
+{{% endif %}}
+{{% endfor %}}
+
+{{{{
+    area_entities(ns.area_id)
+        | expand
+        | selectattr('attributes.friendly_name', 'defined')
+        | selectattr(
+            'attributes.friendly_name',
+            'search',
+            '{friendly_name}',
+            ignorecase=True
+        )
+        | map(attribute='entity_id')
+        | first
+        | tojson
+
+}}}}
+"""
+
+        area_device = await self.hass_client.render_template(tpl)
+
+        if not area_device:
+            return None
+
+        return str(area_device)
+    
+    async def get_area_aliases(self) -> dict:
+        """Повертає мапу {'Назва кімнати': ['аліас1', 'аліас2']}"""
+        areas = await self.hass_client.call_ws_command("config/area_registry/list")
+        if not areas:
+            return {}
+        
+        # Створюємо мапу: Name -> List of Aliases
+        return {a["name"]: a.get("aliases", []) for a in areas}
