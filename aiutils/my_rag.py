@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from sentence_transformers import SentenceTransformer
+import re
 
 def clean_for_fts(text):
     # Видаляємо емодзі та неалфавітні символи на початку слів
