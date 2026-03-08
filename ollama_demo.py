@@ -1,13 +1,8 @@
 import asyncio
 import logging
-import time
-from datetime import datetime
 from typing import Type, Any
 
 import json
-import numpy as np
-import requests
-from bs4 import BeautifulSoup, Tag
 
 from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence, T
 from aiutils.common import load_config
@@ -17,133 +12,7 @@ from wiki_ua_alerts import calculate_next_strike, wiki_to_csv
 
 from aiutils.intent_classifier import IntentClassifier
 
-
-def scrape_messages(url: str, delay: float = 1.0) -> list[dict]:
-    """
-    Fetch messages from public Telegram channel via web scraping.
-    """
-    headers = {
-        'User-Agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) '
-            'Chrome/91.0.4472.124 Safari/537.36'
-        )
-    }
-
-    max_retries = 3
-    response = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            time.sleep(delay)  # rate limiting
-            response = requests.get(url, headers=headers, timeout=60)
-
-            if response.status_code != 200:
-                logging.info(
-                    f"[scrape] HTTP {response.status_code} on attempt {attempt}")
-                if attempt < max_retries:
-                    time.sleep(delay * attempt)
-                    continue
-                return []
-
-            break  # успішно отримали відповідь
-        except requests.RequestException as e:
-            logging.info(f"[scrape] Request error on attempt {attempt}: {e}")
-            if attempt < max_retries:
-                time.sleep(delay * attempt)
-            else:
-                return []
-
-    if not response:
-        return []
-
-    soup = BeautifulSoup(response.text, 'lxml')
-    messages = soup.find_all('div', class_='tgme_widget_message')
-    result = []
-
-    for content in messages:
-        try:
-            if not isinstance(content, Tag):
-                continue
-
-            message_date_obj = content.find(
-                "a", class_="tgme_widget_message_date")
-            if not message_date_obj or not isinstance(message_date_obj, Tag):
-                continue
-
-            msg_url = message_date_obj.attrs.get("href")
-            msg_id = int(str(msg_url).split("/")[-1]) if msg_url else None
-
-            msg_time_obj = message_date_obj.find('time')
-            if not msg_time_obj or not isinstance(msg_time_obj, Tag):
-                continue
-
-            raw_date = datetime.fromisoformat(
-                str(msg_time_obj.attrs.get("datetime")))
-            timestamp_str = raw_date.isoformat()
-
-            msg_text_obj = content.find(
-                'div', class_='tgme_widget_message_text')
-            text = ""
-
-            if msg_text_obj and isinstance(msg_text_obj, Tag):
-                reply_obj = content.find(
-                    'div', class_='tgme_widget_message_reply')
-                if reply_obj:
-                    text += "[Reply/Forward] "
-
-                for br in msg_text_obj.find_all("br"):
-                    br.replace_with("\n")  # type: ignore
-                text += msg_text_obj.get_text(separator=' ')
-
-            clean_text = ' '.join(text.split())
-            if clean_text:
-                result.append({
-                    "id": msg_id,
-                    "url": msg_url,
-                    "date": timestamp_str,
-                    "content": clean_text
-                })
-        except Exception as e:
-            print(f"Error parsing message: {e}")
-            continue
-
-    return result
-
-
-def cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
-    """
-    Обчислює cosine similarity між одним вектором та матрицею векторів.
-    query_vec: (n,) — вектор питання
-    matrix: (m, n) — всі вектори бази
-    """
-    dot_product = np.dot(matrix, query_vec)
-    matrix_norms = np.linalg.norm(matrix, axis=1)
-    query_norm = np.linalg.norm(query_vec)
-    return dot_product / (matrix_norms * query_norm + 1e-10)
-
-
-def chunk_text(text: str, size: int = 150, overlap: int = 25) -> list[str]:
-    """
-    Розбиває текст на чанки по словах із перекриттям.
-    size: кількість слів у чанку.
-    overlap: кількість слів, що повторюються.
-    """
-    words = text.split()
-
-    if len(words) <= size:
-        return [text]
-
-    chunks = []
-    stride = size - overlap
-
-    for i in range(0, len(words), stride):
-        chunk_slice = words[i: i + size]
-        chunks.append(" ".join(chunk_slice))
-        if i + size >= len(words):
-            break
-
-    return chunks
-
+from telegram_tools import scrape_messages
 
 class MyBot:
 
@@ -316,7 +185,7 @@ logging.info("Система запущена")
 logging.info("Поточний стан: OK")
 
 
-async def main():
+async def main():        
     bot = MyBot()
     await bot.init_intent_data()
     await run_demo(bot)

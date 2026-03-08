@@ -140,3 +140,5 @@ tmp_cache
 pytest_buckets.txt
 config.yaml
 *.csv
+todo.txt
+*.db
