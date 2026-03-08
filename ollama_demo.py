@@ -171,12 +171,16 @@ class MyBot:
         # Створюємо мапу: Name -> List of Aliases
         rooms = {a["name"]: {"aliases":  a.get(
             "aliases", []), "data": a} for a in areas}
-        
-        main_floor_aliases = next((a for a in floors if a["floor_id"] == "main"), None)
+
+        main_floor_aliases = next(
+            (a for a in floors if a["floor_id"] == "main"), None)
         main_floor_data = [a for a in areas if a["floor_id"] == "main"]
-        temperature_entity_ids = [s["temperature_entity_id"] for s in main_floor_data ]
-        humidity_entity_ids = [s["humidity_entity_id"] for s in main_floor_data ]
-        rooms['Будинок'] = {"aliases": main_floor_aliases["aliases"] if main_floor_aliases else [], "data": {"temperature_entity_id": temperature_entity_ids, "humidity_entity_id": humidity_entity_ids}}
+        temperature_entity_ids = [s["temperature_entity_id"]
+                                  for s in main_floor_data]
+        humidity_entity_ids = [s["humidity_entity_id"]
+                               for s in main_floor_data]
+        rooms['Будинок'] = {"aliases": main_floor_aliases["aliases"] if main_floor_aliases else [], "data": {
+            "temperature_entity_id": temperature_entity_ids, "humidity_entity_id": humidity_entity_ids}}
 
         for room in rooms:
             names = [room] + rooms[room]["aliases"]
@@ -185,7 +189,7 @@ class MyBot:
                 self.classifier.add_intent(f"яка температура скільки градусів {name}", "tool_hass", {
                                            "room": room, "device": "температура", "entity_id": rooms[room]["data"].get('temperature_entity_id')})
                 self.classifier.add_intent(f"яка вологість {name}", "tool_hass", {
-                                           "room": room, "device": "вологість","entity_id": rooms[room]["data"].get('humidity_entity_id')})
+                                           "room": room, "device": "вологість", "entity_id": rooms[room]["data"].get('humidity_entity_id')})
 
         self.classifier.add_intent("прогноз погоди", "tool_hass", {
                                    "room": "", "device": "погода"})

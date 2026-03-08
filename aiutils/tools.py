@@ -159,7 +159,7 @@ class Tools:
             values = [v for v in values if v is not None]
             
             state_data = {
-                "entity_id": "entity_id",
+                "entity_id": "entity_id_avg",
                 "state": sum(values) / len(values) if values else 0,
                 "attributes": {}
             }
