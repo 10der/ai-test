@@ -15,7 +15,6 @@ def duckduckgo_search(query, num_results=3):
         for r in ddgs.text(
             query,
             safesearch="on",
-            timelimit="m",
             page=1,
             backend="auto",
             region="wt-wt",
