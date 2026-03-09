@@ -1,15 +1,16 @@
 import httpx
-import json
 from .hass_client import HassClient
 from .common import duckduckgo_search
 import inspect
 import logging
+
 
 def to_float(value, default=None):
     try:
         return float(value)
     except (TypeError, ValueError):
         return default
+
 
 def tool(name: str, description: str):
     def decorator(func):
@@ -137,7 +138,7 @@ class Tools:
         name="tool_hass",
         description="Отримати стан/атрибути сутності в Home Assistant за кімнатою та типом пристрою."
     )
-    async def tool_hass(self, room: str, device: str, **kwargs) -> str:
+    async def tool_hass(self, room: str, device: str, **kwargs) -> dict | str:
         if not device:
             return "Помилка: Не вказано параметр 'device' у запиті."
 
@@ -154,10 +155,10 @@ class Tools:
 
         if isinstance(entity_id, list):
             states = [await self.hass_client.get_entity(eid) for eid in entity_id]
-            
+
             values = [to_float(s['state'] if s else 0) for s in states]
             values = [v for v in values if v is not None]
-            
+
             state_data = {
                 "entity_id": "entity_id_avg",
                 "state": sum(values) / len(values) if values else 0,
@@ -175,7 +176,7 @@ class Tools:
             "attributes": state_data.get("attributes", {})
         }
 
-        return json.dumps(data, ensure_ascii=False, indent=2)
+        return data
 
     async def get_entity_by_room_and_friendly_name(self, room_name: str, friendly_name) -> str | None:
 
@@ -212,17 +213,17 @@ sensors.items
 
         if not area_device:
             return None
-        
+
         if not isinstance(area_device, dict):
             return None
 
         return str(area_device.get('id'))
-    
+
     async def get_area_aliases(self) -> dict:
         """Повертає мапу {'Назва кімнати': ['аліас1', 'аліас2']}"""
         areas = await self.hass_client.call_ws_command("config/area_registry/list")
         if not areas:
             return {}
-        
+
         # Створюємо мапу: Name -> List of Aliases
         return {a["name"]: a.get("aliases", []) for a in areas}

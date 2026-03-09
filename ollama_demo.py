@@ -14,6 +14,7 @@ from aiutils.intent_classifier import IntentClassifier
 
 from telegram_tools import scrape_messages
 
+
 class MyBot:
 
     def __init__(self):
@@ -99,7 +100,7 @@ class MyBot:
                         f"Знайдено: {intent['tool']} | Params: {intent['params']}")
 
         context = json.dumps(local_kb, ensure_ascii=False,
-                             indent=2) if local_kb else None
+                             separators=(',', ':')) if local_kb else None
         final_answer = await bot.process_request(query, context_data=context)
 
         logging.info(f"[{ai_class.__name__}] Bot: {final_answer}")
@@ -185,7 +186,7 @@ logging.info("Система запущена")
 logging.info("Поточний стан: OK")
 
 
-async def main():        
+async def main():
     bot = MyBot()
     await bot.init_intent_data()
     await run_demo(bot)
