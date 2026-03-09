@@ -112,6 +112,7 @@ def scrape_messages(channel_url: str, days_ago: int = 0) -> list[dict]:
                     continue
 
                 timestamp = datetime.fromisoformat(str(msg_time_obj.attrs.get("datetime")))
+                timestamp_str = timestamp.isoformat()
                 msg_date = timestamp.date()
 
                 if msg_date < target_date:
@@ -136,7 +137,7 @@ def scrape_messages(channel_url: str, days_ago: int = 0) -> list[dict]:
                 batch_results.append({
                     "id": msg_id,
                     "url": msg_url,
-                    "date": timestamp,
+                    "date": timestamp_str,
                     "content": ' '.join(text.split())
                 })
 
