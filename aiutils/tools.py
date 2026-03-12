@@ -3,6 +3,13 @@ from .hass_client import HassClient
 from .common import duckduckgo_search
 import inspect
 import logging
+import sqlite3
+from telegram_tools import scrape_messages
+
+from collections import defaultdict
+import statistics
+from datetime import datetime
+import re
 
 
 def to_float(value, default=None):
@@ -12,133 +19,61 @@ def to_float(value, default=None):
         return default
 
 
-def tool(name: str, description: str):
+def tool(description: str, name: str | None = None):
     def decorator(func):
+        tool_name = name if name else func.__name__
         func._tool_meta = {
-            "name": name,
+            "name": tool_name,
             "description": description,
         }
         return func
     return decorator
 
 
-class ToolRegistry:
-    def __init__(self):
-        self._tools = {}
-
-    def register(self, func):
-        meta = func._tool_meta
-        name = meta["name"]
-
-        signature = inspect.signature(func)
-
-        properties = {}
-        required = []
-
-        for param_name, param in signature.parameters.items():
-            if param_name == "self":
-                continue
-
-            properties[param_name] = {
-                "type": "string",
-                # "description": "",
-            }
-            required.append(param_name)
-
-        self._tools[name] = {
-            "func": func,
-            "description": meta["description"],
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            }
-        }
-
-    def get_tools_schema(self):
-        result = []
-
-        for name, data in self._tools.items():
-            result.append({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": data["description"],
-                    "parameters": data["parameters"],
-                }
-            })
-
-        return result
-
-    async def execute(self, name: str, **kwargs) -> str:
-        if name not in self._tools:
-            return f"Error: Unknown tool: {name}"
-
-        logging.debug(f"Bot: [TOOL]: {name}")
-
-        func = self._tools[name]["func"]
-        return await func(**kwargs)
-
-
-class Tools:
-    def __init__(self, hass_client: HassClient):
-        if not isinstance(hass_client, HassClient):
-            raise TypeError(
-                f"hass_client must be HassClient, got {type(hass_client)}")
+class Intents:
+    def __init__(self, hass_client: HassClient, db_path: str) -> None:
         self.hass_client = hass_client
+        self.db_path = db_path
 
-        self.registry = ToolRegistry()
+    async def intent_tele_chat(self, user_name: str,  **kwargs) -> list | None:
+        chat_id = kwargs.get("chat_id")
 
-        for attr in dir(self):
-            method = getattr(self, attr)
-            if hasattr(method, "_tool_meta"):
-                self.registry.register(method)
+        if not chat_id:
+            return None
 
-    @tool(
-        name="tool_search",
-        description="Web search"
-    )
-    async def tool_general_search(self, query: str) -> str:
+        if not user_name:
+            return None
+
+        user_messages = await self.get_user_messages(chat_id, user_name)
+        if user_messages is not None:
+            return user_messages
+
+        return None
+
+    async def intent_tele_channel(self, channel: str,  **kwargs) -> list | None:
+        message = scrape_messages(f"https://t.me/s/{channel}")
+        if message is not None:
+            return message
+
+        return None
+
+    async def intent_weather_dnipro(self, **kwargs) -> dict | str:
+        current = await self.hass_client.get_entity("weather.my_weather_station")
+        forecast_all = await self.hass_client.get_entity("sensor.home_forecast_hourly")
+        forecast = forecast_all["attributes"]["forecast"] if forecast_all else {
+        }
+        forecast = self.collapse_weather(forecast)
+        return {
+            "current": current,
+            "forecast": forecast
+        }
+    
+    async def intent_search(self, query: str, **kwargs) -> list | None:
+        query = query if query else kwargs.get("user_query") or ""
         results = duckduckgo_search(query, num_results=3)
-        return "\n".join(results)
+        return results
 
-    @tool(
-        name="tool_currency",
-        description="Отримати курси валют НБУ"
-    )
-    async def tool_currency(self) -> str:
-        try:
-            async with httpx.AsyncClient() as client:
-                currencies = await client.get(
-                    "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json",
-                    timeout=10,
-                )
-
-                allowed = ['USD', 'EUR']
-                by_cc = {c["cc"]: c for c in currencies.json()
-                         if c.get("cc") in allowed}
-                usd = by_cc.get("USD", {}).get("rate")
-                eur = by_cc.get("EUR", {}).get("rate")
-
-                lines = ["Курс НБУ (UAH за 1 одиницю валюти):"]
-                if usd is not None:
-                    lines.append(f"- USD: {usd:.4f} UAH")
-                if eur is not None:
-                    lines.append(f"- EUR: {eur:.4f} UAH")
-
-                if usd is None and eur is None:
-                    return "Помилка: не вдалося отримати USD/EUR з відповіді НБУ."
-
-                return "\n".join(lines)
-
-        except Exception as e:
-            return f"Помилка отримання курсу: {e}"
-
-    @tool(
-        name="tool_hass",
-        description="Отримати стан/атрибути сутності в Home Assistant за кімнатою та типом пристрою."
-    )
-    async def tool_hass(self, room: str, device: str, **kwargs) -> dict | str:
+    async def intent_hass(self, room: str, device: str, **kwargs) -> dict | str:
         if not device:
             return "Помилка: Не вказано параметр 'device' у запиті."
 
@@ -177,6 +112,104 @@ class Tools:
         }
 
         return data
+
+    async def intent_currency(self, **kwargs) -> list | None:
+        default_currencies = ["USD", "EUR"]
+
+        available = [
+            "USD", "EUR", "JPY", "GBP", "AUD", "CAD", "CHF", "PLN", "CNY", "SEK", "NOK", "DKK", "HUF",
+            "CZK", "ILS", "MXN", "NZD", "SGD", "THB", "TRY", "RON", "RSD", "AED", "ZAR", "MYR", "HKD",
+            "INR", "KRW", "KZT", "GEL", "XAU", "XAG", "XPT", "XPD", "XDR"
+        ]
+
+        user_query = kwargs.get("user_query", "")
+        matches = re.findall(r"\b[a-zA-Z]{3,4}\b", user_query)
+        codes = [m.upper() for m in matches]
+        filtered = [c for c in codes if c in available]
+
+        currencies = filtered or default_currencies
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json",
+                    timeout=10,
+                )
+                data = resp.json()
+
+            by_cc = {c["cc"]: c for c in data if c.get("cc") in currencies}
+
+            lines = ["Курс НБУ (UAH за 1 одиницю валюти):"]
+            for cc in currencies:
+                rate = by_cc.get(cc, {}).get("rate")
+                if rate is not None:
+                    lines.append(f"{cc}: {rate:.4f} UAH")
+
+            if len(lines) == 1:  # тобто жодної валюти не знайдено
+                # f"Помилка: не вдалося отримати {', '.join(currencies)} з відповіді НБУ."
+                return None
+
+            return lines
+
+        except Exception:
+            return None
+
+    async def get_user_messages(self, chat_id: int, username: str) -> list:
+        """
+        Отримати повідомлення конкретного користувача за сьогодні
+
+        Приклад використання:
+        messages = await self.get_user_messages(chat_id, "Dmitro")
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        query = '''
+                SELECT username, first_name, message_text, timestamp
+                FROM messages 
+                WHERE chat_id = ? AND username = ?
+                AND timestamp >= date('now', 'start of day')
+                AND message_text IS NOT NULL
+                ORDER BY timestamp
+            '''
+
+        cursor.execute(query, (chat_id, username))
+        messages = []
+        for row in cursor.fetchall():
+            username_db, first_name, text, timestamp = row
+            display_name = username_db or first_name or "Unknown"
+            messages.append(f"[{timestamp}] {display_name}: {text}")
+
+        conn.close()
+        return messages
+
+    def collapse_weather(self, data):
+        periods = {
+            "night": range(0, 6),
+            "morning": range(6, 12),
+            "day": range(12, 18),
+            "evening": range(18, 24),
+        }
+
+        grouped = defaultdict(list)
+
+        for entry in data:
+            hour = datetime.fromisoformat(entry["datetime"]).hour
+            for name, hours in periods.items():
+                if hour in hours:
+                    grouped[name].append(entry)
+                    break
+
+        result = {}
+        for name, entries in grouped.items():
+            result[name] = {
+                "condition": statistics.mode([e["condition"] for e in entries]),
+                "temperature_avg": round(statistics.mean([e["temperature"] for e in entries]), 1),
+                "wind_speed_avg": round(statistics.mean([e["wind_speed"] for e in entries]), 1),
+                "humidity_avg": round(statistics.mean([e["humidity"] for e in entries]), 1),
+                "precipitation_sum": round(sum([e["precipitation"] for e in entries]), 1),
+            }
+        return result
 
     async def get_entity_by_room_and_friendly_name(self, room_name: str, friendly_name) -> str | None:
 
@@ -219,11 +252,83 @@ sensors.items
 
         return str(area_device.get('id'))
 
-    async def get_area_aliases(self) -> dict:
-        """Повертає мапу {'Назва кімнати': ['аліас1', 'аліас2']}"""
-        areas = await self.hass_client.call_ws_command("config/area_registry/list")
-        if not areas:
-            return {}
 
-        # Створюємо мапу: Name -> List of Aliases
-        return {a["name"]: a.get("aliases", []) for a in areas}
+class ToolRegistry:
+    def __init__(self):
+        self._tools = {}
+
+    def register(self, func):
+        meta = func._tool_meta
+        name = meta["name"]
+
+        signature = inspect.signature(func)
+
+        properties = {}
+        required = []
+
+        for param_name, param in signature.parameters.items():
+            if param_name == "self":
+                continue
+
+            properties[param_name] = {
+                "type": "string",
+                # "description": "",
+            }
+            required.append(param_name)
+
+        self._tools[name] = {
+            "func": func,
+            "description": meta["description"],
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            }
+        }
+
+    def get_tools_schema(self, exclude: list = []):
+        result = []
+
+        for name, data in self._tools.items():
+            if name not in exclude:
+                result.append({
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": data["description"],
+                        "parameters": data["parameters"],
+                    }
+                })
+
+        return result
+
+    async def execute(self, name: str, **kwargs) -> str:
+        if name not in self._tools:
+            return f"Error: Unknown tool: {name}"
+
+        logging.info(f"Bot: [TOOL]: {name}")
+
+        func = self._tools[name]["func"]
+        return await func(**kwargs)
+
+
+class Tools(Intents):
+    def __init__(self, hass_client: HassClient, db_path: str = "./bot_history.db"):
+        super().__init__(hass_client, db_path)
+        self.db_path = db_path
+        if not isinstance(hass_client, HassClient):
+            raise TypeError(
+                f"hass_client must be HassClient, got {type(hass_client)}")
+        self.hass_client = hass_client
+
+        self.registry = ToolRegistry()
+
+        for attr in dir(self):
+            method = getattr(self, attr)
+            if hasattr(method, "_tool_meta"):
+                self.registry.register(method)
+
+    @tool(description="Web search")
+    async def tool_search(self, query: str, **kwargs) -> list | None:
+        results = await self.intent_search(query=query) or []
+        return results

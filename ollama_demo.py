@@ -56,15 +56,16 @@ class MyBot:
             names = [room] + rooms[room]["aliases"]
             for name in names:
                 # Генеруємо СЕМАНТИЧНІ ПРИКЛАДИ
-                self.classifier.add_intent(f"яка температура скільки градусів {name}", "tool_hass", {
+                self.classifier.add_intent(f"яка температура скільки градусів {name}", "intent_hass", {
                                            "room": room, "device": "температура", "entity_id": rooms[room]["data"].get('temperature_entity_id')})
-                self.classifier.add_intent(f"яка вологість {name}", "tool_hass", {
+                self.classifier.add_intent(f"яка вологість {name}", "intent_hass", {
                                            "room": room, "device": "вологість", "entity_id": rooms[room]["data"].get('humidity_entity_id')})
 
-        self.classifier.add_intent("прогноз погоди", "tool_hass", {
-                                   "room": "", "device": "погода"})
         self.classifier.add_intent(
-            "курс валют долар євро гривня", "tool_currency", {})
+            "курс валют долар євро гривня", "intent_currency", {})
+
+        self.classifier.add_intent("прогноз погоди", "intent_weather_dnipro", {
+                                   "room": "", "device": "погода"})
 
         self.classifier.build_index()
 
@@ -88,6 +89,8 @@ class MyBot:
             if intent:
                 call_tool = intent.get("tool")
                 call_params: Any = intent.get("params") or {}
+                call_params["user_query"] = query
+
                 logging.info(
                     f"Викликаю інструмент: {call_tool} {call_params}"
                 )
@@ -126,7 +129,7 @@ async def run_demo(bot: MyBot) -> None:
     await bot.ask(def_system_prompt, "яка температура у спальні?",
                   ai_class=OpenAIAirIntelligence)
 
-    await bot.ask(def_system_prompt, "Яка зараз погода у Дніпрі?",
+    await bot.ask(def_system_prompt, "Який прогноз погоди?",
                   ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Яка зараз година?",
@@ -173,6 +176,8 @@ logging.basicConfig(
 
 logging.getLogger("ddgs").setLevel(logging.ERROR)
 
+logging.getLogger("urllib3.connectionpool").setLevel(logging.CRITICAL)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 logging.getLogger("httpx").setLevel(logging.CRITICAL)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger('websockets').setLevel(logging.ERROR)
