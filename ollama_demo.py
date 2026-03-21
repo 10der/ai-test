@@ -8,11 +8,25 @@ from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence, T
 from aiutils.common import load_config
 from aiutils.hass_client import HassClient
 from aiutils.tools import Tools
-from wiki_ua_alerts import calculate_next_strike, wiki_to_csv
+from wiki_ua_alerts import calculate_next_strike, wiki_to_csv, cleanup_temporary_files
 
 from aiutils.intent_classifier import IntentClassifier
 
-from telegram_tools import scrape_messages
+
+class MyTools(Tools):
+    async def intent_war(self, **kwargs) -> dict | None:
+        link = "https://uk.wikipedia.org/wiki/%D0%9F%D0%B5%D1%80%D0%B5%D0%BB%D1%96%D0%BA_%D1%80%D0%B0%D0%BA%D0%B5%D1%82%D0%BD%D0%B8%D1%85_%D1%83%D0%B4%D0%B0%D1%80%D1%96%D0%B2_%D0%BF%D1%96%D0%B4_%D1%87%D0%B0%D1%81_%D1%80%D0%BE%D1%81%D1%96%D0%B9%D1%81%D1%8C%D0%BA%D0%BE%D0%B3%D0%BE_%D0%B2%D1%82%D0%BE%D1%80%D0%B3%D0%BD%D0%B5%D0%BD%D0%BD%D1%8F_(%D0%B2%D0%B5%D1%81%D0%BD%D0%B0_2026)"
+        wiki_to_csv(link)
+        math_report = calculate_next_strike()
+        cleanup_temporary_files()
+        logging.info("Математична оцінка наступного удару:")
+        logging.info(math_report)
+
+        messages = await self.intent_tele_channel("StrategicaviationT")
+        if messages:
+            logging.info(f"Отримано {len(messages)} повідомлень з Telegram.")
+
+        return {"military_math_stat_report": math_report, "military_channel_messages": messages}
 
 
 class MyBot:
@@ -26,7 +40,7 @@ class MyBot:
             base_url=config.get("hass", {}).get("url"),
             token=config.get("hass", {}).get("token"),
         )
-        self.tools = Tools(hass_client=self.hass_client)
+        self.tools = MyTools(hass_client=self.hass_client)
 
     async def init_intent_data(self):
 
@@ -56,16 +70,24 @@ class MyBot:
             names = [room] + rooms[room]["aliases"]
             for name in names:
                 # Генеруємо СЕМАНТИЧНІ ПРИКЛАДИ
-                self.classifier.add_intent(f"яка температура скільки градусів {name}", "intent_hass", {
+                self.classifier.add_intent(f"яка температура скільки градусів {name}", self.tools.intent_hass, {
                                            "room": room, "device": "температура", "entity_id": rooms[room]["data"].get('temperature_entity_id')})
-                self.classifier.add_intent(f"яка вологість {name}", "intent_hass", {
+                self.classifier.add_intent(f"яка вологість {name}", self.tools.intent_hass, {
                                            "room": room, "device": "вологість", "entity_id": rooms[room]["data"].get('humidity_entity_id')})
 
         self.classifier.add_intent(
-            "курс валют долар євро гривня", "intent_currency", {})
+            "курс валют долар євро гривня", self.tools.intent_currency, {})
 
-        self.classifier.add_intent("прогноз погоди", "intent_weather_dnipro", {
+        self.classifier.add_intent("прогноз погоди", self.tools.intent_weather_dnipro, {
                                    "room": "", "device": "погода"})
+
+        self.classifier.add_intent([
+            "війна масований ракетний удар",
+            "ракетна загроза сьогодні",
+            "військова ситуація аналіз загрози",
+            "ознаки підготовки до удару",
+            "оцінка ракетної небезпеки",
+        ], self.tools.intent_war, {"system_prompt": "Ти — військовий аналітик."})
 
         self.classifier.build_index()
 
@@ -76,35 +98,34 @@ class MyBot:
         user_context: dict | None = None,
         ai_class: Type[T] = AirIntelligence,
     ) -> str:
-        logging.info(f"Ініціалізую AI клас: {ai_class.__name__}")
-        bot = ai_class(tools=self.tools, system_prompt=system_prompt)
+        logging.info(f"Ініціалізую AI клас: {ai_class.__name__}")        
         logging.info(f"User: {query}")
 
         local_kb: dict = {}
-
+        system_prompt_override = None
         if user_context:
             local_kb.update(user_context)
         else:
             intent = self.classifier.predict(query)
-            if intent:
-                call_tool = intent.get("tool")
+            if intent:                
+                call_tool = intent["tool"]
                 call_params: Any = intent.get("params") or {}
                 call_params["user_query"] = query
 
-                logging.info(
-                    f"Викликаю інструмент: {call_tool} {call_params}"
-                )
-                method_to_call = getattr(bot.tools, f"{call_tool}")
-                tool_result = await method_to_call(**call_params)
-                local_kb["search_results"] = tool_result
+                if "system_prompt" in call_params:
+                    system_prompt_override = call_params["system_prompt"]
 
-                if intent:
-                    print(
-                        f"Знайдено: {intent['tool']} | Params: {intent['params']}")
+                logging.info(
+                    f"Викликаю інструмент: {call_tool.__name__} {call_params}"
+                )
+                tool_result = await intent["tool"](**call_params)
+                local_kb["search_results"] = tool_result
 
         context = json.dumps(local_kb, ensure_ascii=False,
                              separators=(',', ':')) if local_kb else None
-        final_answer = await bot.process_request(query, context_data=context)
+        
+        bot = ai_class(tools=self.tools, system_prompt=system_prompt)
+        final_answer = await bot.process_request(query, context_data=context, system_prompt_override = system_prompt_override)
 
         logging.info(f"[{ai_class.__name__}] Bot: {final_answer}")
         logging.info("")
@@ -120,52 +141,32 @@ async def run_demo(bot: MyBot) -> None:
         "Ти — корисний помічник. Відповідай чітко, стисло, без зайвих слів."
     )
 
-    await bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
-                  ai_class=OpenAIAirIntelligence)
+    # await bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
+    #               ai_class=OpenAIAirIntelligence)
 
-    await bot.ask(def_system_prompt, "яка температура у будинку?",
-                  ai_class=OpenAIAirIntelligence)
+    # await bot.ask(def_system_prompt, "яка температура у будинку?",
+    #               ai_class=OpenAIAirIntelligence)
 
-    await bot.ask(def_system_prompt, "яка температура у спальні?",
-                  ai_class=OpenAIAirIntelligence)
+    # await bot.ask(def_system_prompt, "яка температура у спальні?",
+    #               ai_class=OpenAIAirIntelligence)
 
-    await bot.ask(def_system_prompt, "Який прогноз погоди?",
-                  ai_class=OpenAIAirIntelligence)
+    # await bot.ask(def_system_prompt, "Який прогноз погоди?",
+    #               ai_class=OpenAIAirIntelligence)
 
-    await bot.ask(def_system_prompt, "Яка зараз година?",
-                  ai_class=OpenAIAirIntelligence)
+    # await bot.ask(def_system_prompt, "Яка зараз година?",
+    #               ai_class=OpenAIAirIntelligence)
 
-    await bot.ask(def_system_prompt, "Який зараз курс USD та EUR до гривні?",
-                  ai_class=OpenAIAirIntelligence)
+    # await bot.ask(def_system_prompt, "Який зараз курс USD та EUR до гривні?",
+    #               ai_class=OpenAIAirIntelligence)
 
-    await bot.ask(def_system_prompt, "Дай приклад інструкції `for` в C#.",
-                  ai_class=OpenAIAirIntelligence)
+    # await bot.ask(def_system_prompt, "Дай приклад інструкції `for` в C#.",
+    #               ai_class=OpenAIAirIntelligence)
 
     # Приклад матиматичного аналізу
-    wiki_to_csv("https://uk.wikipedia.org/wiki/%D0%9F%D0%B5%D1%80%D0%B5%D0%BB%D1%96%D0%BA_%D1%80%D0%B0%D0%BA%D0%B5%D1%82%D0%BD%D0%B8%D1%85_%D1%83%D0%B4%D0%B0%D1%80%D1%96%D0%B2_%D0%BF%D1%96%D0%B4_%D1%87%D0%B0%D1%81_%D1%80%D0%BE%D1%81%D1%96%D0%B9%D1%81%D1%8C%D0%BA%D0%BE%D0%B3%D0%BE_%D0%B2%D1%82%D0%BE%D1%80%D0%B3%D0%BD%D0%B5%D0%BD%D0%BD%D1%8F_(%D0%B7%D0%B8%D0%BC%D0%B0_2025/2026)")
-    math_report = calculate_next_strike()
-    logging.info("Математична оцінка наступного удару:")
-    logging.info(math_report)
 
-    messages = scrape_messages("https://t.me/s/StrategicaviationT")
-    logging.info(f"Отримано {len(messages)} повідомлень з Telegram.")
-
-    military_prompt = (
-        "Ти — військовий аналітик. Твоє завдання: проаналізувати повідомлення."
-    )
-
-    await bot.ask(
-        military_prompt,
-        f"""
-        Ось математичний розрахунок: {math_report}
-        Ось останні дані з моніторингових каналів - КОНТЕКСТ / messages.
-        Проаналізуй ризики. Чи є ознаки підготовки, які математика не враховує?
-        Надай коротку оцінку загрози (Low/Medium/High/Critical).
-        """,
-        user_context={"messages": messages},
-        ai_class=OpenAIAirIntelligence,
-    )
-
+    await bot.ask(def_system_prompt, """Проаналізуй війскову ситуацію. Чи є ознаки підготовки до масованого ракетного удару. 
+                  Надай коротку оцінку загрози (Low/Medium/High/Critical).""",
+                  ai_class=OpenAIAirIntelligence)
 
 # Налаштування логування
 logging.basicConfig(

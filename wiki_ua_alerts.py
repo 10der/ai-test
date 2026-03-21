@@ -66,16 +66,16 @@ def calculate_next_strike(target_date=None):
         (all_data.iloc[:,1] == "Україна")
     ].copy()
 
-    #####
-    # synthetic_today = pd.to_datetime('2026-02-22')
-    # if synthetic_today <= today:
-    #     new_event = {
-    #         'date_dt': pd.to_datetime('2026-02-22'), # Сьогоднішній приліт
-    #         all_data.columns[4]: '50/70' # Синтетична статистика для проходження фільтру
-    #     }
-    #     new_row = pd.DataFrame([new_event])
-    #     mass_strikes = pd.concat([mass_strikes, new_row], ignore_index=True)
-    #####
+    # Останній зімовий період
+    if 1 == 1:
+        synthetic_today = pd.to_datetime('2026-02-26')
+        if synthetic_today <= today:
+            new_event = {
+                'date_dt': pd.to_datetime('2026-02-26'), # Сьогоднішній приліт
+                all_data.columns[4]: '50/70' # Синтетична статистика для проходження фільтру
+            }
+            new_row = pd.DataFrame([new_event])
+            mass_strikes = pd.concat([mass_strikes, new_row], ignore_index=True)
 
     mass_strikes = mass_strikes.drop_duplicates(subset=['date_dt'])   
     mass_strikes = mass_strikes.sort_values('date_dt')
@@ -85,9 +85,13 @@ def calculate_next_strike(target_date=None):
         return
 
     mass_strikes['delta'] = mass_strikes['date_dt'].diff().dt.days
-    
     avg_interval = mass_strikes['delta'].median()
-    std = mass_strikes['delta'].std()
+
+    valid = mass_strikes['delta'].dropna()
+    if len(valid) > 1:
+        std = valid.std()
+    else:
+        std = 0  # або 0, або як тобі зручно
     
     recent_trend = mass_strikes['delta'].rolling(window=3).mean().iloc[-1]
     trend_diff = avg_interval - recent_trend
@@ -106,6 +110,13 @@ def calculate_next_strike(target_date=None):
     # Вікно небезпеки (Confidence Interval)
     earliest = expected_date - timedelta(days=int(std))
     latest = expected_date + timedelta(days=int(std))
+
+    # # Довірчий інтервал (±1σ)
+    # lower_bound = last_strike + pd.Timedelta(days=avg_interval - std)
+    # upper_bound = last_strike + pd.Timedelta(days=avg_interval + std)
+
+    # print("Мат. очікування:", expected_date.date())
+    # print("Вікно очікуваної атаки:", lower_bound.date(), "—", upper_bound.date())
 
     # Створюємо список рядків для зручності
     report_lines = [

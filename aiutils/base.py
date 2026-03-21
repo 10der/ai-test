@@ -4,6 +4,7 @@ from .tools import Tools
 import json
 import logging
 
+
 class BaseAirIntelligence(ABC):
     def __init__(self, tools: Tools, system_prompt: str | None = None):
         self.system_prompt = (
@@ -13,7 +14,7 @@ class BaseAirIntelligence(ABC):
         )
         self.tools = tools
 
-    async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
+    async def ask_ai(self, messages: list, tools: Tools | None = None, temperature: float = 0.1) -> dict:
         """Надіслати повідомлення до моделі та отримати відповідь."""
 
         logging.debug("Bot: Думаю...")
@@ -42,7 +43,7 @@ class BaseAirIntelligence(ABC):
                 {"role": "user", "content": f"КОНТЕКСТ:\n{context_data}\n\nЗАПИТ: {user_text}"},
             ]
         else:
-            tools = self.tools.registry.get_tools_schema()
+            tools = self.tools
             sys_message = self._get_router_prompt(system_prompt_override)
             messages = [
                 {"role": "system", "content": sys_message},
@@ -56,7 +57,7 @@ class BaseAirIntelligence(ABC):
 
             # Збираємо всі результати тулів за один прохід
             for tool_call in message["tool_calls"]:
-                name = tool_call["function"]["name"]                
+                name = tool_call["function"]["name"]
                 args = tool_call["function"]["arguments"]
                 if isinstance(args, str):
                     args = json.loads(args)
@@ -64,7 +65,8 @@ class BaseAirIntelligence(ABC):
                 if "parameters" in args:
                     args = args["parameters"]
 
-                tool_result = await self.tools.registry.execute(name, **args)
+                logging.info(f"[LLM TOOL]: {name} {args}")
+                tool_result = await self.tools.execute(name, **args)
 
                 messages.append({
                     "role": "tool",

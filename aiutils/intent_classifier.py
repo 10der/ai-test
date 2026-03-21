@@ -1,5 +1,6 @@
 import numpy as np
 import logging
+from typing import Callable
 from sentence_transformers import SentenceTransformer
 from transformers.utils import logging as hf_logging
 import re
@@ -14,8 +15,11 @@ class IntentClassifier:
         self.metadata = []
         self.raw_intents = []
 
-    def add_intent(self, text: str, tool: str, params: dict = {}):
-        self.raw_intents.append({"text": text, "tool": tool, "params": params})
+    def add_intent(self, texts: str | list[str], tool: Callable, params: dict = {}):
+        if isinstance(texts, str):
+            texts = [texts]
+        for text in texts:
+            self.raw_intents.append({"text": text, "tool": tool, "params": params})
 
     def build_index(self):
         if not self.raw_intents: return
