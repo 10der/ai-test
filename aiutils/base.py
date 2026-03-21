@@ -25,6 +25,7 @@ class BaseAirIntelligence(ABC):
         user_text: str,
         context_data: str | None = None,
         system_prompt_override: str | None = None,
+        history: list = [],
     ) -> str:
 
         if context_data:
@@ -38,17 +39,18 @@ class BaseAirIntelligence(ABC):
                 "ВАЖЛИВО: якщо надано КОНТЕКСТ (результати інструментів) — використовуй його як джерело істини.\n"
                 "Якщо КОНТЕКСТ суперечить твоїм знанням — довіряй КОНТЕКСТУ.\n"
             )
-            messages = [
-                {"role": "system", "content": sys_message},
-                {"role": "user", "content": f"КОНТЕКСТ:\n{context_data}\n\nЗАПИТ: {user_text}"},
-            ]
+
+            messages = [{"role": "system", "content": sys_message}]
+            messages.append({"role": "user", "content": f"КОНТЕКСТ:\n{context_data}\n\nЗАПИТ: {user_text}"})
+
         else:
             tools_schema = self.tools.get_tools_schema()
             sys_message = self._get_router_prompt(system_prompt_override)
-            messages = [
-                {"role": "system", "content": sys_message},
-                {"role": "user", "content": user_text},
-            ]
+
+            messages = [{"role": "system", "content": sys_message}]
+            if history:
+                messages.extend(history)
+            messages.append({"role": "user", "content": user_text})
 
         message = await self.ask_ai(messages=messages, tools_schema=tools_schema)
 

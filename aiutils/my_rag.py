@@ -1,5 +1,6 @@
 import sqlite3
 import json
+from typing import Any
 import os
 import numpy as np
 import asyncio
@@ -8,9 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 from sentence_transformers import SentenceTransformer
 import re
 
+
 def clean_for_fts(text):
     # Видаляємо емодзі та неалфавітні символи на початку слів
     return re.sub(r'[^\w\s]', ' ', text).strip()
+
 
 class MyRAG:
     def __init__(self, db_path: str = "./rag.db", model_name: str = '../MiniLM'):
@@ -18,8 +21,8 @@ class MyRAG:
         self._init_db(self.db_path, "./create_db.sql")
         self.model = SentenceTransformer(model_name)
         # Кеш для векторів, щоб не читати диск при кожному запиті
-        self._matrix_cache = None
-        self._metadata_cache = []
+        self._matrix_cache: dict[str, np.ndarray] = {}
+        self._metadata_cache: dict[str, list] = {}
         self._executor = ThreadPoolExecutor(max_workers=1)
 
     def _init_db(self, db_path: str, sql_file_path: str):
@@ -44,21 +47,30 @@ class MyRAG:
         except sqlite3.Error as e:
             print(f"Помилка SQLite: {e}")
 
-    def _load_cache(self):
+    def _load_cache(self, source: str | None = None):
         """Завантажує всі вектори в пам'ять один раз"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT c.text, c.embedding, d.date, d.source 
-                FROM rag_chunks c 
-                JOIN raw_docs d ON c.doc_id = d.id
-            """)
+            if source:
+                cursor.execute("""
+                    SELECT c.text, c.embedding, d.date, d.source 
+                    FROM rag_chunks c 
+                    JOIN raw_docs d ON c.doc_id = d.id
+                    WHERE d.source = ?
+                """, (source,))
+            else:
+                cursor.execute("""
+                    SELECT c.text, c.embedding, d.date, d.source 
+                    FROM rag_chunks c 
+                    JOIN raw_docs d ON c.doc_id = d.id
+                """)
             rows = cursor.fetchall()
 
         if rows:
-            # Створюємо матрицю один раз: (N, 384)
-            self._matrix_cache = np.array([json.loads(r[1]) for r in rows])
-            self._metadata_cache = rows  # Зберігаємо метадані для швидкого доступу
+            key = source or "__all__"
+            self._matrix_cache[key] = np.array(
+                [json.loads(r[1]) for r in rows])
+            self._metadata_cache[key] = rows
 
     def cosine_similarity(self, query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
         # Оптимізована версія без зайвих копіювань
@@ -89,17 +101,24 @@ class MyRAG:
         return [{"static_data": r[0], "subjects": r[1].split(","),
                 "date": r[2], "similarity": 1.0} for r in rows]
 
-    def _fts_search(self, query: str, top_k: int, recency_weight: float = 0.0) -> list:
+    def _fts_search(self, query: str, top_k: int, recency_weight: float = 0.0, source: str | None = None) -> list:
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
+            query = clean_for_fts(query)
+            params: list[Any] = [query]
             if recency_weight > 0:
                 order_clause = "(bm25(rag_chunks_fts) * (1.0 / (1 + (julianday('now') - julianday(d.date)) * ?)))"
-                params = (query, recency_weight, top_k)
+                params = [query, recency_weight]
             else:
                 order_clause = "bm25(rag_chunks_fts)"
-                params = (query, top_k)
+                params = [query]
+
+            if source:
+                params.append(source)
+
+            params.append(top_k)
 
             cursor.execute(f"""
                 SELECT c.text, d.source, d.date,
@@ -108,9 +127,11 @@ class MyRAG:
                 JOIN rag_chunks c ON rag_chunks_fts.rowid = c.id
                 JOIN raw_docs d ON c.doc_id = d.id
                 WHERE rag_chunks_fts MATCH ?
+                {"AND d.source = ?" if source else ""}
                 ORDER BY {order_clause}
                 LIMIT ?
             """, params)
+
             rows = cursor.fetchall()
 
         if not rows:
@@ -136,28 +157,33 @@ class MyRAG:
                 merged.append(r)
         return merged[:top_k]
 
-    async def search(self, user_query: str, recency_weight: float = 0.0, top_k: int = 3, threshold: float = 0.45):
+    async def search(self, user_query: str, recency_weight: float = 0.0, top_k: int = 3, threshold: float = 0.45, source: str | None = None):
         semantic = await asyncio.get_event_loop().run_in_executor(
-            self._executor, self._sync_search, user_query, top_k, threshold
+            self._executor, self._sync_search, user_query, top_k, threshold, source
         )
 
-        keyword = self._fts_search(user_query, top_k, recency_weight)
+        keyword = self._fts_search(user_query, top_k, recency_weight, source)
 
         return self._merge_results(semantic, keyword, top_k)
 
-    def _sync_search(self, user_query: str, top_k: int, threshold: float):
-        if self._matrix_cache is None:
-            self._load_cache()
+    def _sync_search(self, user_query: str, top_k: int, threshold: float, source: str | None = None):
+        key = source or "__all__"
 
-        if self._matrix_cache is None or len(self._matrix_cache) == 0:
+        if key not in self._matrix_cache:
+            self._load_cache(source)
+
+        if key not in self._matrix_cache:
             return []
+
+        matrix = self._matrix_cache[key]
+        metadata = self._metadata_cache[key]
 
         # Енкодимо запит
         query_vector = np.array(self.model.encode(
             user_query, convert_to_numpy=True))
 
         # Рахуємо схожість одразу для всієї матриці
-        similarities = self.cosine_similarity(query_vector, self._matrix_cache)
+        similarities = self.cosine_similarity(query_vector, matrix)
 
         # Знаходимо індекси найкращих результатів
         best_indices = np.argsort(similarities)[::-1][:top_k]
@@ -168,7 +194,11 @@ class MyRAG:
             if score < threshold:
                 continue
 
-            text, _, doc_date, doc_source = self._metadata_cache[idx]
+            text, _, doc_date, doc_source = metadata[idx]
+
+            if source and doc_source != source:
+                continue
+
             results.append({
                 "static_data": text,
                 "subjects": doc_source.split(","),
@@ -209,33 +239,34 @@ class MyRAG:
     def remove_documents_by_date(self, source: str, target_date: datetime):
         # 1. Форматуємо дату ТАК САМО, як у вашому робочому CLI запиті
         date_str = target_date.strftime('%Y-%m-%d')
-        
+
         with sqlite3.connect(self.db_path) as conn:
             # 2. Вмикаємо прагми ПЕРЕД виконанням запиту
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("PRAGMA recursive_triggers = ON;")
-            
+
             cursor = conn.cursor()
-            
+
             # 3. Виконуємо видалення
             cursor.execute("""
                 DELETE FROM raw_docs 
                 WHERE source = ? AND date(date) = ?
             """, (source, date_str))
-            
+
             # 4. Перевіряємо, чи взагалі щось було видалено
             deleted_count = cursor.rowcount
             conn.commit()
-            
+
         # 5. Скидаємо кеш
-        self._matrix_cache = None
+        self._matrix_cache.pop(source, None)
+        self._matrix_cache.pop("__all__", None)
+
         print(f"Видалено записів: {deleted_count} для {source} за {date_str}")
         return deleted_count
 
-        
-    def add_document(self, text: str, source: str, date_str: datetime):
+    def add_document(self, text: str, source: str, date_str: datetime, metadata: dict = {}):
         """Метод для додавання нового документа в базу знань"""
-        
+
         # 1. Розбиваємо на чанки (використовуємо твій метод chunk_text)
         text = clean_for_fts(text)
         chunks = self.chunk_text(text)
@@ -248,9 +279,11 @@ class MyRAG:
 
             # Зберігаємо основний документ
             cursor.execute(
-                "INSERT INTO raw_docs (text, source, date) VALUES (?, ?, ?)",
-                (text, source, date_str)
+                "INSERT INTO raw_docs (text, source, date, metadata) VALUES (?, ?, ?, ?)",
+                (text, source, date_str, json.dumps(
+                    metadata) if metadata else None)
             )
+
             doc_id = cursor.lastrowid
 
             # Зберігаємо чанки та їхні вектори
@@ -263,5 +296,6 @@ class MyRAG:
 
         # 3. ВАЖЛИВО: Після додавання знань треба скинути кеш матриці,
         # щоб наступний пошук побачив нові дані
-        self._matrix_cache = None
+        self._matrix_cache.pop(source, None)
+        self._matrix_cache.pop("__all__", None)
         print(f"Додано документ: {source}, база оновлена.")

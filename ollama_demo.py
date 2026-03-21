@@ -1,13 +1,16 @@
 import asyncio
 import logging
 from typing import Type, Any
+from datetime import datetime
 
 import json
 
 from aiutils.ai_client import AirIntelligence, OpenAIAirIntelligence, T
 from aiutils.common import load_config
 from aiutils.hass_client import HassClient
+from aiutils.db_client import DbClient
 from aiutils.tools import Tools
+from aiutils.my_rag import MyRAG
 from wiki_ua_alerts import calculate_next_strike, wiki_to_csv, cleanup_temporary_files
 
 from aiutils.intent_classifier import IntentClassifier
@@ -34,13 +37,15 @@ class MyBot:
     def __init__(self):
         self.rag_chunks: list[dict] = []
         self.classifier = IntentClassifier(threshold=0.7)
+        self.rag = MyRAG()
 
         config = load_config()
         self.hass_client = HassClient(
             base_url=config.get("hass", {}).get("url"),
             token=config.get("hass", {}).get("token"),
         )
-        self.tools = MyTools(hass_client=self.hass_client)
+        self.db_client = DbClient()        
+        self.tools = MyTools(hass_client=self.hass_client, db_client=self.db_client)
 
     async def init_intent_data(self):
 
@@ -91,6 +96,10 @@ class MyBot:
 
         self.classifier.build_index()
 
+    async def find_relevant_history(self, chat_id: int, query: str, top_k: int = 3):
+        results = await self.rag.search(query, top_k=top_k, source=f"chat_{chat_id}")
+        return [{"role": "user", "content": r["static_data"]} for r in results]
+
     async def ask(
         self,
         system_prompt: str,
@@ -100,6 +109,15 @@ class MyBot:
     ) -> str:
         logging.info(f"Ініціалізую AI клас: {ai_class.__name__}")        
         logging.info(f"User: {query}")
+        chat_id = 246569
+        user_id = 246569
+        await self.db_client.save_message(chat_id, user_id, "alf_brd", "", query)
+        if self.rag:
+            self.rag.add_document(
+                query, 
+                source=f"chat_{chat_id}",
+                date_str=datetime.now()
+            )        
 
         local_kb: dict = {}
         system_prompt_override = None
@@ -125,12 +143,27 @@ class MyBot:
                              separators=(',', ':')) if local_kb else None
         
         bot = ai_class(tools=self.tools, system_prompt=system_prompt)
-        final_answer = await bot.process_request(query, context_data=context, system_prompt_override = system_prompt_override)
+        history = await self.db_client.get_history(246569, limit=10)
+        history = history[:-1]  # без останнього
+        final_answer = await bot.process_request(query, context_data=context, 
+                                                 system_prompt_override = system_prompt_override,
+                                                 history=history)
 
         logging.info(f"[{ai_class.__name__}] Bot: {final_answer}")
+        await self.db_client.save_message(chat_id, user_id, ai_class.__name__, "", final_answer, role="assistant")
         logging.info("")
         return final_answer
 
+
+async def test(bot: MyBot) -> None:
+    chat_id = 246569
+    relevant = await bot.find_relevant_history(chat_id, "Як мене звати?")
+    print(relevant)
+    # bot.rag.add_document(
+    #     "Мене зовуть Олег.", 
+    #     source=f"chat_{chat_id}",
+    #     date_str=datetime.now()
+    # )        
 
 async def run_demo(bot: MyBot) -> None:
     """
@@ -141,7 +174,10 @@ async def run_demo(bot: MyBot) -> None:
         "Ти — корисний помічник. Відповідай чітко, стисло, без зайвих слів."
     )
 
-    await bot.ask(def_system_prompt, "Що сьогодні було цікавого?",
+    await bot.ask(def_system_prompt, "Мене зовуть Олег.",
+                  ai_class=OpenAIAirIntelligence)
+
+    await bot.ask(def_system_prompt, "Як мене звати?",
                   ai_class=OpenAIAirIntelligence)
 
     # await bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
@@ -186,6 +222,8 @@ logging.getLogger("httpx").setLevel(logging.CRITICAL)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger('websockets').setLevel(logging.ERROR)
 
+logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 logging.getLogger("transformers").setLevel(logging.WARNING)
@@ -198,7 +236,9 @@ logging.info("Поточний стан: OK")
 async def main():
     bot = MyBot()
     await bot.init_intent_data()
-    await run_demo(bot)
+    await bot.db_client.init()
+    await test(bot)
+    #await run_demo(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())

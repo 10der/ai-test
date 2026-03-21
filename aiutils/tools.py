@@ -1,8 +1,8 @@
 import httpx
 from .hass_client import HassClient
+from .db_client import DbClient
 from .common import duckduckgo_search
 import inspect
-import sqlite3
 from telegram_tools import scrape_messages
 
 from collections import defaultdict
@@ -22,9 +22,9 @@ def tool(description: str, name: str | None = None):
     return decorator
 
 class Intents:
-    def __init__(self, hass_client: HassClient, db_path: str) -> None:
+    def __init__(self, hass_client: HassClient, db_client: DbClient) -> None:
         self.hass_client = hass_client
-        self.db_path = db_path
+        self.db_client = db_client
 
     async def intent_tele_chat(self, user_name: str,  **kwargs) -> list | None:
         chat_id = kwargs.get("chat_id")
@@ -158,27 +158,8 @@ class Intents:
         Приклад використання:
         messages = await self.get_user_messages(chat_id, "Dmitro")
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
 
-        query = '''
-                SELECT username, first_name, message_text, timestamp
-                FROM messages 
-                WHERE chat_id = ? AND username = ?
-                AND timestamp >= date('now', 'start of day')
-                AND message_text IS NOT NULL
-                ORDER BY timestamp
-            '''
-
-        cursor.execute(query, (chat_id, username))
-        messages = []
-        for row in cursor.fetchall():
-            username_db, first_name, text, timestamp = row
-            display_name = username_db or first_name or "Unknown"
-            messages.append(f"[{timestamp}] {display_name}: {text}")
-
-        conn.close()
-        return messages
+        return await self.db_client.get_user_messages(chat_id, username)
 
     async def _get_entity_by_room_and_friendly_name(self, room_name: str, friendly_name) -> str | None:
 
@@ -251,8 +232,8 @@ sensors.items
 
 
 class Tools(Intents):
-    def __init__(self, hass_client: HassClient, db_path: str = "./bot_history.db"):
-        super().__init__(hass_client, db_path)
+    def __init__(self, hass_client: HassClient, db_client: DbClient):
+        super().__init__(hass_client, db_client)
         self.hass_client = hass_client
         self._tools_schema = self._build_schema()
 
