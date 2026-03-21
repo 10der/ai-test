@@ -15,10 +15,10 @@ class AirIntelligence(BaseAirIntelligence):
         self.model = config.get("ollama", {}).get("model")
         self.url = config.get("ollama", {}).get("url")
 
-    async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
+    async def ask_ai(self, messages: list,  tools_schema: list | None = None, temperature: float = 0.1) -> dict:
         """Спілкування з Ollama"""
 
-        await super().ask_ai(messages, tools, temperature)
+        await super().ask_ai(messages, tools_schema, temperature)
 
         payload = {
             "model": self.model,
@@ -32,8 +32,8 @@ class AirIntelligence(BaseAirIntelligence):
             }
         }
 
-        if tools:
-            payload["tools"] = tools
+        if tools_schema:
+            payload["tools"] = tools_schema
 
         headers = {
             'User-Agent':
@@ -57,10 +57,10 @@ class OpenAIAirIntelligence(BaseAirIntelligence):
         self.url = "https://api.openai.com/v1/chat/completions"
         self.api_key = config.get("openai", {}).get("api_key")
 
-    async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
+    async def ask_ai(self, messages: list, tools_schema: list | None = None, temperature: float = 0.1) -> dict:
         """OpenAI call"""
 
-        await super().ask_ai(messages, tools, temperature)
+        await super().ask_ai(messages, tools_schema, temperature)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -72,8 +72,8 @@ class OpenAIAirIntelligence(BaseAirIntelligence):
             "max_tokens": 1000
         }
 
-        if tools:
-            payload["tools"] = tools
+        if tools_schema:
+            payload["tools"] = tools_schema
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -86,6 +86,7 @@ class OpenAIAirIntelligence(BaseAirIntelligence):
             response.raise_for_status()
             return response.json()['choices'][0]['message']
 
+
 class GeminiAirIntelligence(BaseAirIntelligence):
     def __init__(self, tools: Tools, system_prompt: str | None = None):
         super().__init__(tools=tools, system_prompt=system_prompt)
@@ -94,15 +95,15 @@ class GeminiAirIntelligence(BaseAirIntelligence):
         self.api_key = config.get("gemini", {}).get("api_key")
         self.url = config.get("gemini", {}).get("url")
 
-    async def ask_ai(self, messages: list, tools=None, temperature: float = 0.1) -> dict:
+    async def ask_ai(self, messages: list, tools_schema: list | None = None, temperature: float = 0.1) -> dict:
         """Gemini call"""
 
-        await super().ask_ai(messages, tools, temperature)
+        await super().ask_ai(messages, tools_schema, temperature)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        
+
         payload = {
             "model": self.model,
             "messages": messages,
@@ -110,9 +111,9 @@ class GeminiAirIntelligence(BaseAirIntelligence):
             "max_tokens": 2048
         }
 
-        if tools:
+        if tools_schema:
             # Gemini підтримує формат інструментів OpenAI через цей endpoint
-            payload["tools"] = tools
+            payload["tools"] = tools_schema
 
         async with httpx.AsyncClient() as client:
             response = await client.post(

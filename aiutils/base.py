@@ -14,7 +14,7 @@ class BaseAirIntelligence(ABC):
         )
         self.tools = tools
 
-    async def ask_ai(self, messages: list, tools: Tools | None = None, temperature: float = 0.1) -> dict:
+    async def ask_ai(self, messages: list, tools_schema: list | None = None, temperature: float = 0.1) -> dict:
         """Надіслати повідомлення до моделі та отримати відповідь."""
 
         logging.debug("Bot: Думаю...")
@@ -28,7 +28,7 @@ class BaseAirIntelligence(ABC):
     ) -> str:
 
         if context_data:
-            tools = None
+            tools_schema = None
             current_date = datetime.now().strftime("%d.%m.%Y")
             current_time = datetime.now().strftime("%H:%M")
             sys_message = (
@@ -43,14 +43,14 @@ class BaseAirIntelligence(ABC):
                 {"role": "user", "content": f"КОНТЕКСТ:\n{context_data}\n\nЗАПИТ: {user_text}"},
             ]
         else:
-            tools = self.tools
+            tools_schema = self.tools.get_tools_schema()
             sys_message = self._get_router_prompt(system_prompt_override)
             messages = [
                 {"role": "system", "content": sys_message},
                 {"role": "user", "content": user_text},
             ]
 
-        message = await self.ask_ai(messages=messages, tools=tools)
+        message = await self.ask_ai(messages=messages, tools_schema=tools_schema)
 
         if "tool_calls" in message:
             messages.append(message)

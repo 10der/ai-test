@@ -141,6 +141,9 @@ async def run_demo(bot: MyBot) -> None:
         "Ти — корисний помічник. Відповідай чітко, стисло, без зайвих слів."
     )
 
+    await bot.ask(def_system_prompt, "Що сьогодні було цікавого?",
+                  ai_class=OpenAIAirIntelligence)
+
     # await bot.ask(def_system_prompt, "Хто зараз Президент у USA?",
     #               ai_class=OpenAIAirIntelligence)
 
@@ -164,9 +167,9 @@ async def run_demo(bot: MyBot) -> None:
 
     # Приклад матиматичного аналізу
 
-    await bot.ask(def_system_prompt, """Проаналізуй війскову ситуацію. Чи є ознаки підготовки до масованого ракетного удару. 
-                  Надай коротку оцінку загрози (Low/Medium/High/Critical).""",
-                  ai_class=OpenAIAirIntelligence)
+    # await bot.ask(def_system_prompt, """Проаналізуй війскову ситуацію. Чи є ознаки підготовки до масованого ракетного удару. 
+    #               Надай коротку оцінку загрози (Low/Medium/High/Critical).""",
+    #               ai_class=OpenAIAirIntelligence)
 
 # Налаштування логування
 logging.basicConfig(
