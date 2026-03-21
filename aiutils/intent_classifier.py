@@ -5,7 +5,6 @@ from sentence_transformers import SentenceTransformer
 from transformers.utils import logging as hf_logging
 import re
 
-
 class IntentClassifier:
     def __init__(self, model_path: str = "../MiniLM", threshold: float = 0.7):
         hf_logging.set_verbosity_error()
