@@ -44,8 +44,9 @@ class MyBot:
             base_url=config.get("hass", {}).get("url"),
             token=config.get("hass", {}).get("token"),
         )
-        self.db_client = DbClient()        
-        self.tools = MyTools(hass_client=self.hass_client, db_client=self.db_client)
+        self.db_client = DbClient()
+        self.tools = MyTools(hass_client=self.hass_client,
+                             db_client=self.db_client)
 
     async def init_intent_data(self):
 
@@ -96,8 +97,8 @@ class MyBot:
 
         self.classifier.build_index()
 
-    async def find_relevant_history(self, chat_id: int, query: str, top_k: int = 3):
-        results = await self.rag.search(query, top_k=top_k, source=f"chat_{chat_id}")
+    async def find_relevant_history(self, source: str, query: str, top_k: int = 3):
+        results = await self.rag.search(query, top_k=top_k, source=source)
         return [{"role": "user", "content": r["static_data"]} for r in results]
 
     async def ask(
@@ -106,18 +107,14 @@ class MyBot:
         query: str,
         user_context: dict | None = None,
         ai_class: Type[T] = AirIntelligence,
-    ) -> str:
-        logging.info(f"Ініціалізую AI клас: {ai_class.__name__}")        
+    ) -> None:
+        logging.info(f"Ініціалізую AI клас: {ai_class.__name__}")
         logging.info(f"User: {query}")
-        chat_id = 246569
-        user_id = 246569
-        await self.db_client.save_message(chat_id, user_id, "alf_brd", "", query)
-        if self.rag:
-            self.rag.add_document(
-                query, 
-                source=f"chat_{chat_id}",
-                date_str=datetime.now()
-            )        
+        
+        chat_id = 255464392
+        user_id = 255464392    
+        username = "alf_brd"
+        first_name = "IT Alf"
 
         local_kb: dict = {}
         system_prompt_override = None
@@ -125,7 +122,7 @@ class MyBot:
             local_kb.update(user_context)
         else:
             intent = self.classifier.predict(query)
-            if intent:                
+            if intent:
                 call_tool = intent["tool"]
                 call_params: Any = intent.get("params") or {}
                 call_params["user_query"] = query
@@ -141,29 +138,48 @@ class MyBot:
 
         context = json.dumps(local_kb, ensure_ascii=False,
                              separators=(',', ':')) if local_kb else None
-        
+
         bot = ai_class(tools=self.tools, system_prompt=system_prompt)
-        history = await self.db_client.get_history(246569, limit=10)
-        history = history[:-1]  # без останнього
-        final_answer = await bot.process_request(query, context_data=context, 
-                                                 system_prompt_override = system_prompt_override,
+        history = await self.db_client.get_user_history(chat_id, user_id, limit=10)
+        relevant = await self.find_relevant_history(f"chat_{chat_id}-user_{user_id}", query)
+        history.extend(relevant)
+        final_answer = await bot.process_request(query, context_data=context,
+                                                 system_prompt_override=system_prompt_override,
                                                  history=history)
 
         logging.info(f"[{ai_class.__name__}] Bot: {final_answer}")
-        await self.db_client.save_message(chat_id, user_id, ai_class.__name__, "", final_answer, role="assistant")
         logging.info("")
-        return final_answer
 
+        if final_answer:
+            await self.db_client.save_message(chat_id, user_id, username, first_name, query)
+            await self.db_client.save_message(chat_id, user_id, ai_class.__name__, "", final_answer, role="assistant")
+            if self.rag:
+                self.rag.add_document(
+                    query,
+                    source=f"chat_{chat_id}-user_{user_id}",
+                    date_str=datetime.now()
+                )
+        else:
+            print("AI: Не зміг знайти відповідь.")
+        
 
 async def test(bot: MyBot) -> None:
-    chat_id = 246569
-    relevant = await bot.find_relevant_history(chat_id, "Як мене звати?")
+    chat_id = -1001928843751
+    user_id = 394234205
+
+    all = await bot.db_client.get_user_messages(chat_id, "mrak_orm")
+    print(all)
+
+    history = await bot.db_client.get_user_history(chat_id, user_id, limit=10)
+    print(history)
+    relevant = await bot.find_relevant_history(f"chat_{chat_id}-user_{user_id}", "Як мене звати?")
     print(relevant)
     # bot.rag.add_document(
-    #     "Мене зовуть Олег.", 
-    #     source=f"chat_{chat_id}",
+    #     "Мене зовуть Олег.",
+    #     source=f"chat_{chat_id}-user_{user_id}",
     #     date_str=datetime.now()
-    # )        
+    # )
+
 
 async def run_demo(bot: MyBot) -> None:
     """
@@ -174,8 +190,8 @@ async def run_demo(bot: MyBot) -> None:
         "Ти — корисний помічник. Відповідай чітко, стисло, без зайвих слів."
     )
 
-    await bot.ask(def_system_prompt, "Мене зовуть Олег.",
-                  ai_class=OpenAIAirIntelligence)
+    # await bot.ask(def_system_prompt, "Мене зовуть Олег.",
+    #               ai_class=OpenAIAirIntelligence)
 
     await bot.ask(def_system_prompt, "Як мене звати?",
                   ai_class=OpenAIAirIntelligence)
@@ -202,8 +218,7 @@ async def run_demo(bot: MyBot) -> None:
     #               ai_class=OpenAIAirIntelligence)
 
     # Приклад матиматичного аналізу
-
-    # await bot.ask(def_system_prompt, """Проаналізуй війскову ситуацію. Чи є ознаки підготовки до масованого ракетного удару. 
+    # await bot.ask(def_system_prompt, """Проаналізуй війскову ситуацію. Чи є ознаки підготовки до масованого ракетного удару.
     #               Надай коротку оцінку загрози (Low/Medium/High/Critical).""",
     #               ai_class=OpenAIAirIntelligence)
 
@@ -237,8 +252,8 @@ async def main():
     bot = MyBot()
     await bot.init_intent_data()
     await bot.db_client.init()
-    await test(bot)
-    #await run_demo(bot)
+    #await test(bot)
+    await run_demo(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())

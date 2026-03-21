@@ -52,7 +52,11 @@ class BaseAirIntelligence(ABC):
                 messages.extend(history)
             messages.append({"role": "user", "content": user_text})
 
-        message = await self.ask_ai(messages=messages, tools_schema=tools_schema)
+        try:
+            message = await self.ask_ai(messages=messages, tools_schema=tools_schema)
+        except Exception as e:
+            logging.error(e)
+            message = {}
 
         if "tool_calls" in message:
             messages.append(message)
@@ -68,7 +72,11 @@ class BaseAirIntelligence(ABC):
                     args = args["parameters"]
 
                 logging.info(f"[LLM TOOL]: {name} {args}")
-                tool_result = await self.tools.execute(name, **args)
+                try:
+                    tool_result = await self.tools.execute(name, **args)
+                except Exception as e:
+                    logging.error(e)
+                    tool_result = {}
 
                 messages.append({
                     "role": "tool",
@@ -77,7 +85,11 @@ class BaseAirIntelligence(ABC):
                 })
 
             # Один фінальний запит після всіх тулів
-            final_response = await self.ask_ai(messages)
+            try:
+                final_response = await self.ask_ai(messages)
+            except Exception as e:
+                logging.error(e)
+                final_response = {}
             return final_response.get("content", "")
         else:
             return message.get("content", "")
